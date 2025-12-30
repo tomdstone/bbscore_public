@@ -84,18 +84,18 @@ class OnlineTVSDFull(OnlineBenchmarkScore):
 BENCHMARK_REGISTRY["OnlineTVSDFull"] = OnlineTVSDFull
 
 
-class TVSDFullOneVsAll(BenchmarkScore):
+class TVSDV1(BenchmarkScore):
     def __init__(self, model_identifier, layer_name, debug: bool = False, batch_size: int = 4):
         super().__init__(
             stimulus_train_class=TVSDStimulusTrainSet,
             model_identifier=model_identifier,
             layer_name=layer_name,
             stimulus_test_class=TVSDStimulusTestSet,
-            assembly_class=TVSDAssemblyFullOneVsAll,
+            assembly_class=TVSDAssemblyV1,
             assembly_train_kwargs={'train': True},
             assembly_test_kwargs={'train': False},
             batch_size=batch_size,
-            num_workers=16,
+            num_workers=8,
             debug=debug
         )
 
@@ -121,18 +121,18 @@ class OnlineTVSDV1(OnlineBenchmarkScore):
 BENCHMARK_REGISTRY["OnlineTVSDV1"] = OnlineTVSDV1
 
 
-class TVSDV1OneVsAll(BenchmarkScore):
+class TVSDV4(BenchmarkScore):
     def __init__(self, model_identifier, layer_name, debug: bool = False, batch_size: int = 4):
         super().__init__(
             stimulus_train_class=TVSDStimulusTrainSet,
             model_identifier=model_identifier,
             layer_name=layer_name,
             stimulus_test_class=TVSDStimulusTestSet,
-            assembly_class=TVSDAssemblyV1OneVsAll,
+            assembly_class=TVSDAssemblyV4,
             assembly_train_kwargs={'train': True},
             assembly_test_kwargs={'train': False},
             batch_size=batch_size,
-            num_workers=16,
+            num_workers=8,
             debug=debug
         )
 
@@ -158,18 +158,18 @@ class OnlineTVSDV4(OnlineBenchmarkScore):
 BENCHMARK_REGISTRY["OnlineTVSDV4"] = OnlineTVSDV4
 
 
-class TVSDV4OneVsAll(BenchmarkScore):
+class TVSDIT(BenchmarkScore):
     def __init__(self, model_identifier, layer_name, debug: bool = False, batch_size: int = 4):
         super().__init__(
             stimulus_train_class=TVSDStimulusTrainSet,
             model_identifier=model_identifier,
             layer_name=layer_name,
             stimulus_test_class=TVSDStimulusTestSet,
-            assembly_class=TVSDAssemblyV4OneVsAll,
+            assembly_class=TVSDAssemblyIT,
             assembly_train_kwargs={'train': True},
             assembly_test_kwargs={'train': False},
             batch_size=batch_size,
-            num_workers=16,
+            num_workers=8,
             debug=debug
         )
 

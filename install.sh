@@ -153,31 +153,32 @@ show_menu() {
     trap 'tput cnorm 2>/dev/null || true' RETURN
 
     while true; do
-        # Clear previous menu
+        # Clear previous menu (output to stderr)
         for ((i=0; i<${#options[@]}+2; i++)); do
             tput cuu1 2>/dev/null || true
             tput el 2>/dev/null || true
         done 2>/dev/null || true
 
-        # Print title
-        echo -e "${BOLD}${title}${NC}"
-        echo -e "${DIM}(Use arrow keys or j/k to navigate, Enter to select)${NC}"
+        # Print title (to stderr so it doesn't get captured)
+        echo -e "${BOLD}${title}${NC}" >&2
+        echo -e "${DIM}(Use arrow keys or j/k to navigate, Enter to select)${NC}" >&2
 
         # Print options
         for i in "${!options[@]}"; do
             if [ $i -eq $selected ]; then
-                echo -e "  ${GREEN}▸ ${options[$i]}${NC}"
+                echo -e "  ${GREEN}▸ ${options[$i]}${NC}" >&2
             else
-                echo -e "    ${options[$i]}"
+                echo -e "    ${options[$i]}" >&2
             fi
         done
 
         # Read single keypress
-        read -rsn1 key
+        read -rsn1 key 2>/dev/null || read -rs -k1 key 2>/dev/null || true
 
         # Handle arrow keys (escape sequences)
         if [[ $key == $'\x1b' ]]; then
-            read -rsn2 -t 0.1 key
+            # Read rest of escape sequence (works in both bash and zsh)
+            read -rsn2 -t 1 key 2>/dev/null || read -rs -k2 -t 1 key 2>/dev/null || true
             case "$key" in
                 '[A') # Up arrow
                     ((selected > 0)) && ((selected--))
@@ -218,18 +219,19 @@ show_simple_menu() {
     shift
     local options=("$@")
 
-    echo -e "${BOLD}${title}${NC}"
+    echo -e "${BOLD}${title}${NC}" >&2
     for i in "${!options[@]}"; do
-        echo "  $((i+1)). ${options[$i]}"
+        echo "  $((i+1)). ${options[$i]}" >&2
     done
 
     while true; do
-        read -p "Enter choice [1-${#options[@]}]: " choice
+        echo -n "Enter choice [1-${#options[@]}]: " >&2
+        read choice
         if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#options[@]}" ]; then
             echo "$((choice-1))"
             return
         fi
-        echo "Invalid choice. Please enter a number between 1 and ${#options[@]}."
+        echo "Invalid choice. Please enter a number between 1 and ${#options[@]}." >&2
     done
 }
 
@@ -246,11 +248,11 @@ select_option() {
 
     # Check if we can use the fancy menu (need tput and terminal)
     if [ -t 0 ] && [ -t 1 ] && command_exists tput; then
-        # Print initial lines for the menu to overwrite
-        echo ""
-        echo ""
+        # Print initial lines for the menu to overwrite (to stderr)
+        echo "" >&2
+        echo "" >&2
         for ((i=0; i<${#options[@]}; i++)); do
-            echo ""
+            echo "" >&2
         done
         show_menu "$title" "${options[@]}"
     else
@@ -270,16 +272,14 @@ prompt_path() {
         return
     fi
 
-    echo -e "${BOLD}${prompt}${NC}"
-    echo -e "${DIM}(Tab completion enabled for paths)${NC}"
+    # Output prompts to stderr so they don't get captured by command substitution
+    echo -e "${BOLD}${prompt}${NC}" >&2
+    echo -e "${DIM}(Tab completion enabled, press Enter for default)${NC}" >&2
+    echo -e "${DIM}Default: ${default}${NC}" >&2
 
     # Use read -e for readline support (tab completion)
-    # Use -i for default value that can be edited
-    if [ -n "$default" ]; then
-        read -e -p "> " -i "$default" result
-    else
-        read -e -p "> " result
-    fi
+    # Note: -i option not supported in zsh, so we show default separately
+    read -e -p "> " result
 
     # Use default if empty
     result="${result:-$default}"
@@ -302,10 +302,13 @@ prompt_text() {
     fi
 
     if [ -n "$default" ]; then
-        read -p "$prompt [$default]: " result
+        # Output to stderr to avoid capture by command substitution
+        echo -n "$prompt [$default]: " >&2
+        read result
         result="${result:-$default}"
     else
-        read -p "$prompt: " result
+        echo -n "$prompt: " >&2
+        read result
     fi
 
     echo "$result"

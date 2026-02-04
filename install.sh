@@ -1056,16 +1056,20 @@ source "$SCRIPT_DIR/.venv/bin/activate"
 EOF
 fi
 
-cat >> "$ACTIVATE_SCRIPT" << EOF
+cat >> "$ACTIVATE_SCRIPT" << 'EOF'
 
 export SCIKIT_LEARN_DATA="$DATA_DIR"
 
+PYTHON_PATH=$(which python)
 echo "BBScore environment activated!"
-echo "Data: \$SCIKIT_LEARN_DATA"
+echo "Python: $PYTHON_PATH"
+echo "Data: $SCIKIT_LEARN_DATA"
 echo ""
 echo "Quick start:"
-echo "  python run.py --model resnet18 --layer layer4 --benchmark OnlineTVSDV1 --metric ridge"
+echo "  $PYTHON_PATH run.py --model resnet18 --layer layer4 --benchmark OnlineTVSDV1 --metric ridge"
 EOF
+# Replace $DATA_DIR placeholder with actual value
+sed -i.bak "s|\$DATA_DIR|$DATA_DIR|g" "$ACTIVATE_SCRIPT" && rm -f "$ACTIVATE_SCRIPT.bak"
 
 chmod +x "$ACTIVATE_SCRIPT"
 print_success "Created activate_bbscore.sh"
@@ -1091,6 +1095,9 @@ fi
 
 print_header "Installation Complete!"
 
+# Get full Python path for display
+PYTHON_PATH=$(which python)
+
 echo -e "${GREEN}${BOLD}BBScore is ready to use!${NC}"
 echo ""
 echo "To get started:"
@@ -1101,11 +1108,12 @@ echo -e "     ${GREEN}source activate_bbscore.sh${NC}"
     echo -e "     or: ${GREEN}conda activate $ENV_NAME${NC}"
 echo ""
 echo -e "  ${CYAN}2.${NC} Run a quick test:"
-echo -e "     ${GREEN}python run.py --model resnet18 --layer layer4 --benchmark OnlineTVSDV1 --metric ridge${NC}"
+echo -e "     ${GREEN}${PYTHON_PATH} run.py --model resnet18 --layer layer4 --benchmark OnlineTVSDV1 --metric ridge${NC}"
 echo ""
 echo -e "  ${CYAN}3.${NC} Check your system:"
-echo -e "     ${GREEN}python check_system.py${NC}"
+echo -e "     ${GREEN}${PYTHON_PATH} check_system.py${NC}"
 echo ""
+echo "Python: $PYTHON_PATH"
 echo "Data directory: $DATA_DIR"
 echo ""
 

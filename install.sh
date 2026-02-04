@@ -7,32 +7,54 @@
 #
 # Usage:
 #   chmod +x install.sh
-#   ./install.sh
-#
-# Options:
-#   --no-conda    Skip conda installation check
-#   --cpu-only    Install CPU-only PyTorch (smaller download)
-#   --data-dir    Set custom data directory
-#   --help        Show help message
+#   ./install.sh              # Interactive mode (recommended)
+#   ./install.sh --quick      # Skip interactive setup, use defaults
+#   ./install.sh --help       # Show all options
 #
 
 set -e  # Exit on error
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# ============================================================================
+# Configuration
+# ============================================================================
 
-# Default values
 ENV_NAME="bbscore"
-PYTHON_VERSION="3.11"
+PYTHON_VERSION="3.10"
 CPU_ONLY=false
 SKIP_CONDA=false
 DATA_DIR=""
+NON_INTERACTIVE=false
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MIN_DISK_SPACE_GB=10
 
-# Print colored output
+# ============================================================================
+# Color Support Detection
+# ============================================================================
+
+if [ -t 1 ] && [ -n "$TERM" ] && [ "$TERM" != "dumb" ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    CYAN='\033[0;36m'
+    BOLD='\033[1m'
+    DIM='\033[2m'
+    NC='\033[0m'
+else
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    CYAN=''
+    BOLD=''
+    DIM=''
+    NC=''
+fi
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
 print_header() {
     echo ""
     echo -e "${BLUE}============================================================${NC}"
@@ -42,42 +64,349 @@ print_header() {
 }
 
 print_success() {
-    echo -e "${GREEN}✓ $1${NC}"
+    echo -e "${GREEN}[OK]${NC} $1"
 }
 
 print_warning() {
-    echo -e "${YELLOW}⚠ $1${NC}"
+    echo -e "${YELLOW}[WARNING]${NC} $1"
 }
 
 print_error() {
-    echo -e "${RED}✗ $1${NC}"
+    echo -e "${RED}[ERROR]${NC} $1"
 }
 
 print_info() {
-    echo -e "${BLUE}→ $1${NC}"
+    echo -e "${BLUE}[INFO]${NC} $1"
 }
 
-# Show help
+# Check if a command exists
+command_exists() {
+    command -v "$1" &> /dev/null
+}
+
+# Get available disk space in GB
+get_available_disk_space() {
+    local path="$1"
+    if [ "$OS" = "macos" ]; then
+        df -g "$path" 2>/dev/null | awk 'NR==2 {print $4}' || echo "0"
+    else
+        df -BG "$path" 2>/dev/null | awk 'NR==2 {gsub("G",""); print $4}' || echo "0"
+    fi
+}
+
+# Download with retry logic
+download_with_retry() {
+    local url="$1"
+    local output="$2"
+    local max_retries=3
+    local retry=0
+
+    while [ $retry -lt $max_retries ]; do
+        if command_exists curl; then
+            if curl -fsSL --retry 3 --connect-timeout 30 -o "$output" "$url"; then
+                return 0
+            fi
+        elif command_exists wget; then
+            if wget -q --timeout=30 --tries=3 -O "$output" "$url"; then
+                return 0
+            fi
+        else
+            print_error "Neither curl nor wget found. Please install one of them."
+            exit 1
+        fi
+
+        retry=$((retry + 1))
+        print_warning "Download failed, attempt $retry of $max_retries..."
+        sleep 2
+    done
+
+    return 1
+}
+
+# Cleanup function for error handling
+cleanup_on_error() {
+    echo ""
+    print_error "Installation failed!"
+    print_info "You can try running the script again or check the error above."
+    exit 1
+}
+
+trap cleanup_on_error ERR
+
+# ============================================================================
+# Interactive Menu Functions
+# ============================================================================
+
+# Display a selection menu and return the choice
+# Usage: selected=$(show_menu "Title" "option1" "option2" "option3")
+show_menu() {
+    local title="$1"
+    shift
+    local options=("$@")
+    local selected=0
+    local key=""
+
+    # Hide cursor
+    tput civis 2>/dev/null || true
+
+    # Restore cursor on exit
+    trap 'tput cnorm 2>/dev/null || true' RETURN
+
+    while true; do
+        # Clear previous menu
+        for ((i=0; i<${#options[@]}+2; i++)); do
+            tput cuu1 2>/dev/null || true
+            tput el 2>/dev/null || true
+        done 2>/dev/null || true
+
+        # Print title
+        echo -e "${BOLD}${title}${NC}"
+        echo -e "${DIM}(Use arrow keys or j/k to navigate, Enter to select)${NC}"
+
+        # Print options
+        for i in "${!options[@]}"; do
+            if [ $i -eq $selected ]; then
+                echo -e "  ${GREEN}▸ ${options[$i]}${NC}"
+            else
+                echo -e "    ${options[$i]}"
+            fi
+        done
+
+        # Read single keypress
+        read -rsn1 key
+
+        # Handle arrow keys (escape sequences)
+        if [[ $key == $'\x1b' ]]; then
+            read -rsn2 -t 0.1 key
+            case "$key" in
+                '[A') # Up arrow
+                    ((selected > 0)) && ((selected--))
+                    ;;
+                '[B') # Down arrow
+                    ((selected < ${#options[@]}-1)) && ((selected++))
+                    ;;
+            esac
+        else
+            case "$key" in
+                'k'|'K') # Vim up
+                    ((selected > 0)) && ((selected--))
+                    ;;
+                'j'|'J') # Vim down
+                    ((selected < ${#options[@]}-1)) && ((selected++))
+                    ;;
+                '') # Enter
+                    tput cnorm 2>/dev/null || true
+                    echo "$selected"
+                    return
+                    ;;
+                [0-9]) # Number selection
+                    if [ "$key" -lt "${#options[@]}" ] 2>/dev/null; then
+                        selected=$key
+                        tput cnorm 2>/dev/null || true
+                        echo "$selected"
+                        return
+                    fi
+                    ;;
+            esac
+        fi
+    done
+}
+
+# Simple fallback menu for non-interactive terminals
+show_simple_menu() {
+    local title="$1"
+    shift
+    local options=("$@")
+
+    echo -e "${BOLD}${title}${NC}"
+    for i in "${!options[@]}"; do
+        echo "  $((i+1)). ${options[$i]}"
+    done
+
+    while true; do
+        read -p "Enter choice [1-${#options[@]}]: " choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#options[@]}" ]; then
+            echo "$((choice-1))"
+            return
+        fi
+        echo "Invalid choice. Please enter a number between 1 and ${#options[@]}."
+    done
+}
+
+# Wrapper that chooses the right menu type
+select_option() {
+    local title="$1"
+    shift
+    local options=("$@")
+
+    if [ "$NON_INTERACTIVE" = true ]; then
+        echo "0"  # Return first option in non-interactive mode
+        return
+    fi
+
+    # Check if we can use the fancy menu (need tput and terminal)
+    if [ -t 0 ] && [ -t 1 ] && command_exists tput; then
+        # Print initial lines for the menu to overwrite
+        echo ""
+        echo ""
+        for ((i=0; i<${#options[@]}; i++)); do
+            echo ""
+        done
+        show_menu "$title" "${options[@]}"
+    else
+        show_simple_menu "$title" "${options[@]}"
+    fi
+}
+
+# Prompt for text input with tab completion for paths
+# Usage: result=$(prompt_path "Enter directory" "/default/path")
+prompt_path() {
+    local prompt="$1"
+    local default="$2"
+    local result
+
+    if [ "$NON_INTERACTIVE" = true ]; then
+        echo "$default"
+        return
+    fi
+
+    echo -e "${BOLD}${prompt}${NC}"
+    echo -e "${DIM}(Tab completion enabled for paths)${NC}"
+
+    # Use read -e for readline support (tab completion)
+    # Use -i for default value that can be edited
+    if [ -n "$default" ]; then
+        read -e -p "> " -i "$default" result
+    else
+        read -e -p "> " result
+    fi
+
+    # Use default if empty
+    result="${result:-$default}"
+
+    # Expand tilde
+    result="${result/#\~/$HOME}"
+
+    echo "$result"
+}
+
+# Prompt for text input (no tab completion)
+prompt_text() {
+    local prompt="$1"
+    local default="$2"
+    local result
+
+    if [ "$NON_INTERACTIVE" = true ]; then
+        echo "$default"
+        return
+    fi
+
+    if [ -n "$default" ]; then
+        read -p "$prompt [$default]: " result
+        result="${result:-$default}"
+    else
+        read -p "$prompt: " result
+    fi
+
+    echo "$result"
+}
+
+# Yes/No prompt
+prompt_yes_no() {
+    local prompt="$1"
+    local default="$2"
+
+    if [ "$NON_INTERACTIVE" = true ]; then
+        [ "$default" = "y" ] && return 0 || return 1
+    fi
+
+    local yn_hint="y/N"
+    [ "$default" = "y" ] && yn_hint="Y/n"
+
+    read -p "$prompt ($yn_hint): " -n 1 -r
+    echo
+
+    if [ -z "$REPLY" ]; then
+        [ "$default" = "y" ] && return 0 || return 1
+    fi
+
+    [[ $REPLY =~ ^[Yy]$ ]] && return 0 || return 1
+}
+
+# ============================================================================
+# Conda Health Check
+# ============================================================================
+
+check_conda_health() {
+    if command_exists conda; then
+        if ! conda --version &> /dev/null 2>&1; then
+            print_warning "Conda appears to be broken (likely jaraco.functools issue)"
+            print_info "Attempting to fix..."
+
+            local conda_bin_dir
+            conda_bin_dir=$(dirname "$(which conda)")
+            local conda_python="$conda_bin_dir/../bin/python"
+
+            if [ ! -f "$conda_python" ]; then
+                conda_python="$conda_bin_dir/python"
+            fi
+
+            if [ -f "$conda_python" ]; then
+                "$conda_python" -m pip install --upgrade jaraco.functools 2>/dev/null || \
+                "$conda_python" -m pip install 'setuptools<71' 2>/dev/null || true
+            fi
+
+            if ! conda --version &> /dev/null 2>&1; then
+                print_error "Could not fix conda automatically."
+                print_info "Please try running manually:"
+                echo "  \$(conda info --base)/bin/python -m pip install --upgrade jaraco.functools"
+                exit 1
+            fi
+            print_success "Conda fixed successfully!"
+        fi
+    fi
+}
+
+# ============================================================================
+# Help
+# ============================================================================
+
 show_help() {
-    echo "BBScore Installation Script"
-    echo ""
-    echo "Usage: ./install.sh [OPTIONS]"
-    echo ""
-    echo "Options:"
-    echo "  --no-conda        Skip conda installation check"
-    echo "  --cpu-only        Install CPU-only PyTorch (no CUDA)"
-    echo "  --data-dir DIR    Set custom data directory"
-    echo "  --env-name NAME   Set environment name (default: bbscore)"
-    echo "  --help            Show this help message"
-    echo ""
-    echo "Examples:"
-    echo "  ./install.sh                           # Full installation"
-    echo "  ./install.sh --cpu-only                # CPU-only installation"
-    echo "  ./install.sh --data-dir ~/bbscore_data # Custom data directory"
-    echo ""
+    cat << EOF
+${BOLD}BBScore Installation Script${NC}
+
+${BOLD}Usage:${NC}
+  ./install.sh                  Interactive setup (recommended for students)
+  ./install.sh --quick          Use all defaults, minimal prompts
+  ./install.sh [OPTIONS]        Custom installation
+
+${BOLD}Options:${NC}
+  --quick               Skip interactive setup, use smart defaults
+  --non-interactive     Same as --quick (for CI/scripts)
+  --cpu-only            Install CPU-only PyTorch (no CUDA)
+  --data-dir DIR        Set data directory (default: ~/bbscore_data)
+  --env-name NAME       Set environment name (default: bbscore)
+  --no-conda            Use pip/venv instead of conda
+  --help, -h            Show this help message
+
+${BOLD}Examples:${NC}
+  ./install.sh                              # Interactive setup wizard
+  ./install.sh --quick                      # Quick install with defaults
+  ./install.sh --quick --cpu-only           # Quick CPU-only install
+  ./install.sh --data-dir /data/bbscore     # Custom data location
+
+${BOLD}Interactive Features:${NC}
+  - Arrow key menu navigation (or j/k for vim users)
+  - Tab completion for directory paths
+  - Smart defaults based on your system
+
+EOF
 }
 
-# Parse arguments
+# ============================================================================
+# Argument Parsing
+# ============================================================================
+
 while [[ $# -gt 0 ]]; do
     case $1 in
         --no-conda)
@@ -89,36 +418,44 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --data-dir)
+            if [ -z "$2" ] || [[ "$2" == --* ]]; then
+                print_error "--data-dir requires a directory path"
+                exit 1
+            fi
             DATA_DIR="$2"
             shift 2
             ;;
         --env-name)
+            if [ -z "$2" ] || [[ "$2" == --* ]]; then
+                print_error "--env-name requires a name"
+                exit 1
+            fi
             ENV_NAME="$2"
             shift 2
             ;;
-        --help)
+        --quick|--non-interactive)
+            NON_INTERACTIVE=true
+            shift
+            ;;
+        --help|-h)
             show_help
             exit 0
             ;;
         *)
             print_error "Unknown option: $1"
-            show_help
+            echo "Use --help for usage information."
             exit 1
             ;;
     esac
 done
 
-print_header "BBScore Installation"
+# ============================================================================
+# System Detection (needed before interactive setup)
+# ============================================================================
 
-echo "This script will:"
-echo "  1. Check/install conda (if needed)"
-echo "  2. Create a Python $PYTHON_VERSION environment named '$ENV_NAME'"
-echo "  3. Install PyTorch and dependencies"
-echo "  4. Configure environment variables"
-echo ""
-
-# Detect OS
 OS="unknown"
+ARCH=$(uname -m)
+
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     OS="linux"
 elif [[ "$OSTYPE" == "darwin"* ]]; then
@@ -126,234 +463,518 @@ elif [[ "$OSTYPE" == "darwin"* ]]; then
 elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
     OS="windows"
 fi
-print_info "Detected OS: $OS"
 
-# Check for conda
-print_header "Step 1: Checking Conda"
+# Detect GPU
+HAS_NVIDIA_GPU=false
+if command_exists nvidia-smi; then
+    if nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 | grep -qi nvidia; then
+        HAS_NVIDIA_GPU=true
+    fi
+fi
 
-if command -v conda &> /dev/null; then
-    print_success "Conda is installed"
+HAS_APPLE_SILICON=false
+if [ "$OS" = "macos" ] && [ "$ARCH" = "arm64" ]; then
+    HAS_APPLE_SILICON=true
+fi
+
+# ============================================================================
+# Interactive Setup Wizard
+# ============================================================================
+
+run_interactive_setup() {
+    clear 2>/dev/null || true
+
+    echo ""
+    echo -e "${BOLD}${BLUE}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${BLUE}║                                                            ║${NC}"
+    echo -e "${BOLD}${BLUE}║              🧠  BBScore Setup Wizard  🧠                  ║${NC}"
+    echo -e "${BOLD}${BLUE}║                                                            ║${NC}"
+    echo -e "${BOLD}${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    echo -e "${DIM}This wizard will help you configure BBScore for your system.${NC}"
+    echo -e "${DIM}Detected: $OS ($ARCH)${NC}"
+    if [ "$HAS_NVIDIA_GPU" = true ]; then
+        echo -e "${DIM}GPU: NVIDIA GPU detected${NC}"
+    elif [ "$HAS_APPLE_SILICON" = true ]; then
+        echo -e "${DIM}GPU: Apple Silicon (MPS) detected${NC}"
+    else
+        echo -e "${DIM}GPU: No GPU detected (CPU mode)${NC}"
+    fi
+    echo ""
+
+    # Step 1: PyTorch Configuration
+    print_header "Step 1/4: PyTorch Configuration"
+
+    if [ "$HAS_NVIDIA_GPU" = true ]; then
+        echo -e "NVIDIA GPU detected! You can use GPU acceleration."
+        echo ""
+        choice=$(select_option "Select PyTorch version:" \
+            "GPU (CUDA) - Recommended for your system" \
+            "CPU only - Smaller download, no GPU acceleration")
+
+        [ "$choice" -eq 1 ] && CPU_ONLY=true
+    elif [ "$HAS_APPLE_SILICON" = true ]; then
+        echo -e "Apple Silicon detected! MPS acceleration will be enabled automatically."
+        echo ""
+        CPU_ONLY=false
+    else
+        echo -e "No GPU detected. Installing CPU version of PyTorch."
+        echo ""
+        CPU_ONLY=true
+    fi
+
+    # Step 2: Environment Name
+    print_header "Step 2/4: Environment Name"
+
+    echo -e "The conda environment name for BBScore."
+    echo -e "${DIM}Use a unique name if you have other Python projects.${NC}"
+    echo ""
+    ENV_NAME=$(prompt_text "Environment name" "bbscore")
+
+    # Step 3: Data Directory
+    print_header "Step 3/4: Data Directory"
+
+    echo -e "BBScore needs a directory to store datasets and model weights."
+    echo -e "${YELLOW}This directory should have at least 50GB of free space.${NC}"
+    echo ""
+
+    DEFAULT_DATA_DIR="$HOME/bbscore_data"
+
+    # Show available space
+    AVAILABLE_SPACE=$(get_available_disk_space "$HOME")
+    echo -e "${DIM}Available space in home directory: ${AVAILABLE_SPACE}GB${NC}"
+    echo ""
+
+    DATA_DIR=$(prompt_path "Data directory" "$DEFAULT_DATA_DIR")
+
+    # Step 4: Summary and Confirmation
+    print_header "Step 4/4: Confirm Configuration"
+
+    echo -e "${BOLD}Installation Summary:${NC}"
+    echo ""
+    echo -e "  Environment name:  ${GREEN}$ENV_NAME${NC}"
+    echo -e "  Python version:    ${GREEN}$PYTHON_VERSION${NC}"
+    echo -e "  PyTorch:           ${GREEN}$([ "$CPU_ONLY" = true ] && echo "CPU only" || echo "GPU enabled")${NC}"
+    echo -e "  Data directory:    ${GREEN}$DATA_DIR${NC}"
+    echo ""
+
+    if ! prompt_yes_no "Proceed with installation?" "y"; then
+        echo ""
+        print_info "Installation cancelled."
+        exit 0
+    fi
+}
+
+# ============================================================================
+# Main Installation
+# ============================================================================
+
+# Run interactive setup if not in non-interactive mode and no custom flags
+if [ "$NON_INTERACTIVE" = false ] && [ -z "$DATA_DIR" ]; then
+    run_interactive_setup
+fi
+
+print_header "BBScore Installation"
+
+echo "Configuration:"
+echo "  Environment: $ENV_NAME"
+echo "  Python: $PYTHON_VERSION"
+echo "  PyTorch: $([ "$CPU_ONLY" = true ] && echo "CPU only" || echo "GPU enabled")"
+echo "  Data dir: ${DATA_DIR:-$HOME/bbscore_data}"
+echo ""
+
+# ============================================================================
+# Step 0: System Checks
+# ============================================================================
+
+print_header "Checking System Requirements"
+
+print_info "OS: $OS ($ARCH)"
+
+# Check for WSL
+if [ "$OS" = "linux" ] && grep -qi microsoft /proc/version 2>/dev/null; then
+    print_info "Windows Subsystem for Linux (WSL) detected"
+fi
+
+# Check for required tools
+if ! command_exists curl && ! command_exists wget; then
+    print_error "Neither curl nor wget found. Please install one:"
+    echo "  Ubuntu/Debian: sudo apt-get install curl"
+    echo "  CentOS/RHEL:   sudo yum install curl"
+    echo "  macOS:         curl is pre-installed"
+    exit 1
+fi
+print_success "Download tools available"
+
+# Check disk space
+AVAILABLE_SPACE=$(get_available_disk_space "$HOME")
+print_info "Available disk space: ${AVAILABLE_SPACE}GB"
+
+if [ "$AVAILABLE_SPACE" -lt "$MIN_DISK_SPACE_GB" ] 2>/dev/null; then
+    print_warning "Low disk space! At least ${MIN_DISK_SPACE_GB}GB recommended."
+    if ! prompt_yes_no "Continue anyway?" "n"; then
+        exit 1
+    fi
+fi
+
+# ============================================================================
+# Step 1: Conda Setup
+# ============================================================================
+
+print_header "Setting Up Conda"
+
+check_conda_health
+
+CONDA_CMD=""
+if command_exists mamba; then
+    CONDA_CMD="mamba"
+    print_success "Mamba found (using for faster installs)"
+elif command_exists conda; then
+    CONDA_CMD="conda"
+    print_success "Conda found"
+fi
+
+if command_exists conda; then
     CONDA_PATH=$(which conda)
     print_info "Path: $CONDA_PATH"
-
-    # Initialize conda for this shell
-    eval "$(conda shell.bash hook 2>/dev/null)" || true
+    eval "$(conda shell.bash hook 2>/dev/null)" || eval "$(conda shell.zsh hook 2>/dev/null)" || true
 else
     if [ "$SKIP_CONDA" = true ]; then
-        print_warning "Conda not found, but --no-conda specified. Using pip only."
+        print_warning "Conda not found, using pip/venv instead"
+        if ! command_exists pip && ! command_exists pip3; then
+            print_error "pip not found. Please install Python and pip first."
+            exit 1
+        fi
     else
         print_warning "Conda not found. Installing Miniconda..."
 
-        # Download Miniconda
-        if [ "$OS" = "linux" ]; then
-            MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
-        elif [ "$OS" = "macos" ]; then
-            # Check for ARM or Intel
-            if [[ $(uname -m) == "arm64" ]]; then
+        case "$OS-$ARCH" in
+            linux-x86_64)
+                MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+                ;;
+            linux-aarch64|linux-arm64)
+                MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-aarch64.sh"
+                ;;
+            macos-arm64)
                 MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh"
-            else
+                ;;
+            macos-x86_64)
                 MINICONDA_URL="https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-x86_64.sh"
+                ;;
+            *)
+                print_error "Automatic conda installation not supported for $OS-$ARCH"
+                print_info "Please install Miniconda manually: https://docs.conda.io/en/latest/miniconda.html"
+                exit 1
+                ;;
+        esac
+
+        MINICONDA_PATH="$HOME/miniconda3"
+        if [ -d "$MINICONDA_PATH" ]; then
+            print_warning "Found existing $MINICONDA_PATH"
+            if prompt_yes_no "Try to use existing installation?" "y"; then
+                export PATH="$MINICONDA_PATH/bin:$PATH"
+                eval "$($MINICONDA_PATH/bin/conda shell.bash hook)" 2>/dev/null || true
+                if command_exists conda; then
+                    print_success "Using existing conda"
+                    CONDA_CMD="conda"
+                else
+                    print_error "Could not activate. Please fix or remove $MINICONDA_PATH"
+                    exit 1
+                fi
+            else
+                exit 1
             fi
         else
-            print_error "Automatic conda installation not supported on Windows."
-            print_info "Please install Miniconda manually from: https://docs.conda.io/en/latest/miniconda.html"
-            exit 1
+            print_info "Downloading Miniconda..."
+            TEMP_INSTALLER="/tmp/miniconda_installer_$$.sh"
+
+            if ! download_with_retry "$MINICONDA_URL" "$TEMP_INSTALLER"; then
+                print_error "Download failed. Check your internet connection."
+                exit 1
+            fi
+
+            print_info "Installing Miniconda..."
+            bash "$TEMP_INSTALLER" -b -p "$MINICONDA_PATH"
+            rm -f "$TEMP_INSTALLER"
+
+            export PATH="$MINICONDA_PATH/bin:$PATH"
+            eval "$($MINICONDA_PATH/bin/conda shell.bash hook)"
+
+            [ -f "$HOME/.bashrc" ] && conda init bash 2>/dev/null || true
+            [ -f "$HOME/.zshrc" ] && conda init zsh 2>/dev/null || true
+
+            print_success "Miniconda installed"
+            print_warning "Restart your terminal after installation completes"
+            CONDA_CMD="conda"
         fi
-
-        print_info "Downloading Miniconda..."
-        curl -fsSL -o /tmp/miniconda.sh "$MINICONDA_URL"
-
-        print_info "Installing Miniconda..."
-        bash /tmp/miniconda.sh -b -p "$HOME/miniconda3"
-        rm /tmp/miniconda.sh
-
-        # Initialize conda
-        export PATH="$HOME/miniconda3/bin:$PATH"
-        eval "$($HOME/miniconda3/bin/conda shell.bash hook)"
-        conda init bash 2>/dev/null || true
-
-        print_success "Miniconda installed successfully"
-        print_warning "Please restart your terminal after installation completes"
     fi
 fi
 
-# Create conda environment
-print_header "Step 2: Creating Python Environment"
+# ============================================================================
+# Step 2: Environment Creation
+# ============================================================================
 
-if conda env list 2>/dev/null | grep -q "^$ENV_NAME "; then
-    print_warning "Environment '$ENV_NAME' already exists"
-    read -p "Do you want to remove and recreate it? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        print_info "Removing existing environment..."
-        conda env remove -n "$ENV_NAME" -y
-    else
-        print_info "Using existing environment"
+print_header "Creating Python Environment"
+
+if [ "$SKIP_CONDA" = true ] && [ -z "$CONDA_CMD" ]; then
+    print_info "Creating virtual environment..."
+    VENV_PATH="$SCRIPT_DIR/.venv"
+
+    if [ -d "$VENV_PATH" ]; then
+        print_warning "Virtual environment exists at $VENV_PATH"
+        if prompt_yes_no "Remove and recreate?" "n"; then
+            rm -rf "$VENV_PATH"
+        fi
     fi
+
+    [ ! -d "$VENV_PATH" ] && python3 -m venv "$VENV_PATH"
+    source "$VENV_PATH/bin/activate"
+    print_success "Virtual environment activated"
+else
+    if conda env list 2>/dev/null | grep -q "^$ENV_NAME "; then
+        print_warning "Environment '$ENV_NAME' already exists"
+        if prompt_yes_no "Remove and recreate?" "n"; then
+            print_info "Removing existing environment..."
+            $CONDA_CMD env remove -n "$ENV_NAME" -y
+        else
+            print_info "Using existing environment"
+        fi
+    fi
+
+    if ! conda env list 2>/dev/null | grep -q "^$ENV_NAME "; then
+        print_info "Creating environment '$ENV_NAME' with Python $PYTHON_VERSION..."
+        $CONDA_CMD create -n "$ENV_NAME" python="$PYTHON_VERSION" -y
+    fi
+
+    print_info "Activating environment..."
+    CONDA_BASE=$(conda info --base)
+    source "$CONDA_BASE/etc/profile.d/conda.sh"
+    conda activate "$ENV_NAME"
 fi
 
-if ! conda env list 2>/dev/null | grep -q "^$ENV_NAME "; then
-    print_info "Creating conda environment '$ENV_NAME' with Python $PYTHON_VERSION..."
-    conda create -n "$ENV_NAME" python="$PYTHON_VERSION" -y
-fi
-
-# Activate environment
-print_info "Activating environment..."
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "$ENV_NAME"
-
-print_success "Environment '$ENV_NAME' is active"
+print_success "Environment active"
 print_info "Python: $(python --version)"
 
-# Install PyTorch
-print_header "Step 3: Installing PyTorch"
+print_info "Upgrading pip..."
+pip install --upgrade pip --quiet
 
-if [ "$CPU_ONLY" = true ]; then
+# ============================================================================
+# Step 3: PyTorch Installation
+# ============================================================================
+
+print_header "Installing PyTorch"
+
+install_pytorch_cpu() {
     print_info "Installing CPU-only PyTorch..."
     pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-else
-    # Detect CUDA version
-    if command -v nvidia-smi &> /dev/null; then
-        CUDA_VERSION=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)
-        if [ -n "$CUDA_VERSION" ]; then
-            print_info "NVIDIA GPU detected (Driver: $CUDA_VERSION)"
-            print_info "Installing PyTorch with CUDA support..."
+}
 
-            # Try to detect CUDA version for appropriate PyTorch install
-            if command -v nvcc &> /dev/null; then
-                NVCC_VERSION=$(nvcc --version | grep "release" | sed 's/.*release //' | sed 's/,.*//')
-                print_info "CUDA version: $NVCC_VERSION"
-            fi
+install_pytorch_cuda() {
+    local cuda_version="$1"
+    print_info "Installing PyTorch with CUDA $cuda_version..."
+    pip install torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${cuda_version}"
+}
 
-            # Install with CUDA 12.1 by default (most compatible with recent drivers)
-            pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-        else
-            print_warning "NVIDIA driver found but no GPU detected. Installing CPU version."
-            pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-        fi
+if [ "$CPU_ONLY" = true ]; then
+    install_pytorch_cpu
+elif [ "$OS" = "macos" ]; then
+    if [ "$ARCH" = "arm64" ]; then
+        print_info "Installing PyTorch with MPS support..."
+        pip install torch torchvision torchaudio
     else
-        print_warning "No NVIDIA GPU detected. Installing CPU-only PyTorch."
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+        install_pytorch_cpu
+    fi
+else
+    if [ "$HAS_NVIDIA_GPU" = true ]; then
+        PYTORCH_CUDA="121"
+        if command_exists nvcc; then
+            CUDA_TOOLKIT_VERSION=$(nvcc --version 2>/dev/null | grep -oP 'release \K[0-9]+\.[0-9]+' | head -1)
+            if [ -n "$CUDA_TOOLKIT_VERSION" ]; then
+                CUDA_MAJOR=$(echo "$CUDA_TOOLKIT_VERSION" | cut -d. -f1)
+                [ "$CUDA_MAJOR" -lt 12 ] 2>/dev/null && PYTORCH_CUDA="118"
+            fi
+        fi
+        install_pytorch_cuda "$PYTORCH_CUDA"
+    else
+        install_pytorch_cpu
     fi
 fi
 
-# Verify PyTorch installation
-python -c "import torch; print(f'PyTorch {torch.__version__} installed')" && print_success "PyTorch installed successfully"
-python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
-
-# Install other dependencies
-print_header "Step 4: Installing Dependencies"
-
-if [ -f "requirements.txt" ]; then
-    print_info "Installing from requirements.txt..."
-    pip install -r requirements.txt
-    print_success "Dependencies installed"
+print_info "Verifying PyTorch..."
+if python -c "import torch; print(f'PyTorch {torch.__version__}')" 2>/dev/null; then
+    print_success "PyTorch installed"
+    python -c "
+import torch
+if torch.cuda.is_available():
+    print(f'  CUDA: {torch.version.cuda}, GPU: {torch.cuda.get_device_name(0)}')
+elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+    print('  MPS (Apple Silicon) available')
+else:
+    print('  CPU only')
+"
 else
-    print_warning "requirements.txt not found. Installing essential packages..."
+    print_error "PyTorch verification failed"
+    exit 1
+fi
+
+# ============================================================================
+# Step 4: Dependencies
+# ============================================================================
+
+print_header "Installing Dependencies"
+
+if [ -n "$CONDA_CMD" ] && [ "$SKIP_CONDA" != true ]; then
+    print_info "Installing decord from conda-forge..."
+    $CONDA_CMD install -c conda-forge decord -y 2>/dev/null || \
+        print_warning "Decord conda install failed, will try pip"
+fi
+
+REQUIREMENTS_FILE="$SCRIPT_DIR/requirements.txt"
+if [ -f "$REQUIREMENTS_FILE" ]; then
+    print_info "Installing from requirements.txt..."
+    pip install -r "$REQUIREMENTS_FILE" && print_success "Dependencies installed" || \
+        print_warning "Some dependencies failed"
+else
+    print_warning "requirements.txt not found"
+    print_info "Installing essential packages..."
     pip install numpy scipy scikit-learn pillow opencv-python tqdm h5py transformers timm wandb boto3 gdown google-cloud-storage
 fi
 
-# Configure environment variables
-print_header "Step 5: Configuring Environment"
+# ============================================================================
+# Step 5: Configuration
+# ============================================================================
 
-# Determine data directory
-if [ -z "$DATA_DIR" ]; then
-    # Default locations based on OS
-    if [ "$OS" = "macos" ]; then
-        DEFAULT_DATA_DIR="$HOME/bbscore_data"
-    else
-        DEFAULT_DATA_DIR="$HOME/bbscore_data"
-    fi
+print_header "Configuring Environment"
 
-    echo ""
-    echo "BBScore needs a directory to store datasets and model weights."
-    echo "This directory should have at least 50GB of free space."
-    echo ""
-    read -p "Enter data directory [$DEFAULT_DATA_DIR]: " DATA_DIR
-    DATA_DIR=${DATA_DIR:-$DEFAULT_DATA_DIR}
+DATA_DIR="${DATA_DIR:-$HOME/bbscore_data}"
+DATA_DIR="${DATA_DIR/#\~/$HOME}"
+
+if ! mkdir -p "$DATA_DIR" 2>/dev/null; then
+    print_error "Failed to create: $DATA_DIR"
+    exit 1
 fi
-
-# Create data directory
-mkdir -p "$DATA_DIR"
 print_success "Data directory: $DATA_DIR"
 
-# Add to shell config
-SHELL_CONFIG=""
-if [ -f "$HOME/.bashrc" ]; then
-    SHELL_CONFIG="$HOME/.bashrc"
-elif [ -f "$HOME/.zshrc" ]; then
-    SHELL_CONFIG="$HOME/.zshrc"
-elif [ -f "$HOME/.bash_profile" ]; then
-    SHELL_CONFIG="$HOME/.bash_profile"
-fi
+DATA_DIR_SPACE=$(get_available_disk_space "$DATA_DIR")
+[ "$DATA_DIR_SPACE" -lt 50 ] 2>/dev/null && \
+    print_warning "Only ${DATA_DIR_SPACE}GB free. 50GB recommended."
+
+# Detect shell config
+detect_shell_config() {
+    local shell_name=$(basename "$SHELL")
+    case "$shell_name" in
+        zsh)  [ -f "$HOME/.zshrc" ] && echo "$HOME/.zshrc" && return ;;
+        bash) [ -f "$HOME/.bashrc" ] && echo "$HOME/.bashrc" && return
+              [ -f "$HOME/.bash_profile" ] && echo "$HOME/.bash_profile" && return ;;
+    esac
+    [ -f "$HOME/.bashrc" ] && echo "$HOME/.bashrc" && return
+    [ -f "$HOME/.zshrc" ] && echo "$HOME/.zshrc" && return
+    [ -f "$HOME/.bash_profile" ] && echo "$HOME/.bash_profile" && return
+    echo ""
+}
+
+SHELL_CONFIG=$(detect_shell_config)
 
 if [ -n "$SHELL_CONFIG" ]; then
-    # Check if already configured
     if ! grep -q "SCIKIT_LEARN_DATA" "$SHELL_CONFIG" 2>/dev/null; then
-        echo "" >> "$SHELL_CONFIG"
-        echo "# BBScore configuration" >> "$SHELL_CONFIG"
-        echo "export SCIKIT_LEARN_DATA=\"$DATA_DIR\"" >> "$SHELL_CONFIG"
+        cp "$SHELL_CONFIG" "$SHELL_CONFIG.bbscore_backup" 2>/dev/null || true
+        {
+            echo ""
+            echo "# BBScore configuration"
+            echo "export SCIKIT_LEARN_DATA=\"$DATA_DIR\""
+        } >> "$SHELL_CONFIG"
         print_success "Added SCIKIT_LEARN_DATA to $SHELL_CONFIG"
     else
-        print_info "SCIKIT_LEARN_DATA already configured in $SHELL_CONFIG"
+        print_info "SCIKIT_LEARN_DATA already configured"
     fi
+else
+    print_warning "Could not detect shell config"
+    echo "  Add manually: export SCIKIT_LEARN_DATA=\"$DATA_DIR\""
 fi
 
-# Set for current session
 export SCIKIT_LEARN_DATA="$DATA_DIR"
 
 # Create activation script
-ACTIVATE_SCRIPT="activate_bbscore.sh"
-cat > "$ACTIVATE_SCRIPT" << EOF
+ACTIVATE_SCRIPT="$SCRIPT_DIR/activate_bbscore.sh"
+cat > "$ACTIVATE_SCRIPT" << 'SCRIPT_HEADER'
 #!/bin/bash
 # Activate BBScore environment
 # Usage: source activate_bbscore.sh
 
-# Activate conda environment
-source "\$(conda info --base)/etc/profile.d/conda.sh"
-conda activate $ENV_NAME
+SCRIPT_HEADER
 
-# Set environment variables
+if [ -n "$CONDA_CMD" ] && [ "$SKIP_CONDA" != true ]; then
+    cat >> "$ACTIVATE_SCRIPT" << EOF
+if command -v conda &> /dev/null; then
+    source "\$(conda info --base)/etc/profile.d/conda.sh"
+    conda activate $ENV_NAME
+else
+    echo "Error: conda not found"
+    return 1
+fi
+EOF
+else
+    cat >> "$ACTIVATE_SCRIPT" << 'EOF'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/.venv/bin/activate"
+EOF
+fi
+
+cat >> "$ACTIVATE_SCRIPT" << EOF
+
 export SCIKIT_LEARN_DATA="$DATA_DIR"
 
 echo "BBScore environment activated!"
-echo "Data directory: \$SCIKIT_LEARN_DATA"
+echo "Data: \$SCIKIT_LEARN_DATA"
 echo ""
 echo "Quick start:"
-echo "  python check_system.py --quick"
 echo "  python run.py --model resnet18 --layer layer4 --benchmark OnlineTVSDV1 --metric ridge"
 EOF
+
 chmod +x "$ACTIVATE_SCRIPT"
-print_success "Created $ACTIVATE_SCRIPT"
+print_success "Created activate_bbscore.sh"
 
-# Run system check
-print_header "Step 6: System Check"
+# ============================================================================
+# Step 6: System Check
+# ============================================================================
 
-print_info "Running system diagnostic..."
-python check_system.py --quick 2>/dev/null || print_warning "System check failed (non-critical)"
+print_header "System Check"
 
-# Final summary
+CHECK_SCRIPT="$SCRIPT_DIR/check_system.py"
+if [ -f "$CHECK_SCRIPT" ]; then
+    print_info "Running diagnostics..."
+    python "$CHECK_SCRIPT" --quick 2>/dev/null && print_success "System check passed" || \
+        print_warning "System check reported issues (non-critical)"
+else
+    print_warning "check_system.py not found, skipping"
+fi
+
+# ============================================================================
+# Done!
+# ============================================================================
+
 print_header "Installation Complete!"
 
-echo "To use BBScore:"
+echo -e "${GREEN}${BOLD}BBScore is ready to use!${NC}"
 echo ""
-echo "  1. Activate the environment:"
+echo "To get started:"
+echo ""
+echo -e "  ${CYAN}1.${NC} Activate the environment:"
 echo -e "     ${GREEN}source activate_bbscore.sh${NC}"
-echo "     or"
-echo -e "     ${GREEN}conda activate $ENV_NAME${NC}"
+[ -n "$CONDA_CMD" ] && [ "$SKIP_CONDA" != true ] && \
+    echo -e "     or: ${GREEN}conda activate $ENV_NAME${NC}"
 echo ""
-echo "  2. Run a quick test:"
+echo -e "  ${CYAN}2.${NC} Run a quick test:"
 echo -e "     ${GREEN}python run.py --model resnet18 --layer layer4 --benchmark OnlineTVSDV1 --metric ridge${NC}"
 echo ""
-echo "  3. Check your system:"
+echo -e "  ${CYAN}3.${NC} Check your system:"
 echo -e "     ${GREEN}python check_system.py${NC}"
 echo ""
 echo "Data directory: $DATA_DIR"
 echo ""
 
-if [ "$OS" = "linux" ] || [ "$OS" = "macos" ]; then
-    print_warning "Remember to restart your terminal or run: source $SHELL_CONFIG"
-fi
+[ -n "$SHELL_CONFIG" ] && print_warning "Restart your terminal or: source $SHELL_CONFIG"
 
 echo ""
-print_success "Happy benchmarking!"
+print_success "Happy benchmarking! 🧠"

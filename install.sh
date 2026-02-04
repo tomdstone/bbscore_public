@@ -704,6 +704,17 @@ else
             export PATH="$MINICONDA_PATH/bin:$PATH"
             eval "$($MINICONDA_PATH/bin/conda shell.bash hook)"
 
+            # Accept Anaconda TOS (required for newer conda versions)
+            print_info "Accepting conda Terms of Service..."
+            conda config --set auto_activate_base false
+            conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>/dev/null || true
+            conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>/dev/null || true
+
+            # Configure conda-forge as primary channel (avoids TOS issues)
+            print_info "Configuring conda-forge as default channel..."
+            conda config --add channels conda-forge
+            conda config --set channel_priority strict
+
             [ -f "$HOME/.bashrc" ] && conda init bash 2>/dev/null || true
             [ -f "$HOME/.zshrc" ] && conda init zsh 2>/dev/null || true
 
@@ -719,6 +730,18 @@ fi
 # ============================================================================
 
 print_header "Creating Python Environment"
+
+# Accept conda TOS if needed (for existing conda installations)
+if [ -n "$CONDA_CMD" ]; then
+    # Try to accept TOS silently (only needed for newer conda versions)
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main 2>/dev/null || true
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r 2>/dev/null || true
+
+    # Ensure conda-forge is available
+    if ! conda config --show channels 2>/dev/null | grep -q conda-forge; then
+        conda config --add channels conda-forge 2>/dev/null || true
+    fi
+fi
 
 if [ "$SKIP_CONDA" = true ] && [ -z "$CONDA_CMD" ]; then
     print_info "Creating virtual environment..."

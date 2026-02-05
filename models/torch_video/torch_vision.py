@@ -158,7 +158,10 @@ class TorchVideoModels:
         self.fps = self.fps_dict[identifier]
         self.model = self.model_mappings[identifier](weights="DEFAULT")
         self.processor = self.VIDEO_MODEL_PROCESSORS[identifier]
-        self.model = torch.compile(self.model.half().to('cuda'))
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.model = self.model.to(device)
+        if device == "cuda":
+            self.model = torch.compile(self.model.half())
         self.model.eval()
         return self.model
 

@@ -94,10 +94,10 @@ source ~/.bashrc
 
 ```bash
 # Simple example with a small model
-python run.py --model resnet18 --layer layer4 --benchmark V1SineGratingsBenchmark --metric ridge
+python run.py --model resnet18 --layer _orig_mod.resnet.encoder.stages.3 --benchmark V1StaticFullFieldSineGratings --metric ridge
 
 # Video benchmark with online metric (lower memory)
-python run.py --model resnet50 --layer layer4 --benchmark OnlineTVSDV1 --metric online_linear_regressor
+python run.py --model resnet50 --layer _orig_mod.resnet.encoder.stages.3 --benchmark OnlineTVSDV1 --metric online_linear_regressor
 ```
 
 ---
@@ -122,7 +122,7 @@ python run.py --model resnet50 --layer layer4 --benchmark OnlineTVSDV1 --metric 
 
 1. **Start with small experiments:**
    ```bash
-   python run.py --model resnet18 --layer layer4 --benchmark OnlineTVSDV1 --metric ridge
+   python run.py --model resnet18 --layer _orig_mod.resnet.encoder.stages.3 --benchmark OnlineTVSDV1 --metric ridge
    ```
 
 2. **Scale up gradually:**
@@ -197,7 +197,7 @@ python run.py --model <MODEL> --layer <LAYER> --benchmark <BENCHMARK> --metric <
 
 ```bash
 # Image model on NSD (human fMRI)
-python run.py --model resnet50 --layer layer4 --benchmark NSDV1Shared --metric ridge
+python run.py --model resnet50 --layer _orig_mod.resnet.encoder.stages.3 --benchmark NSDV1Shared --metric ridge
 
 # Video model on TVSD (macaque ephys)
 python run.py --model videomae_base --layer encoder.layer.11 --benchmark OnlineTVSDV1 --metric online_linear_regressor
@@ -208,6 +208,32 @@ python run.py --model dinov2_base --layer blocks.11 --benchmark OnlineTVSDV4 --m
 # Fast alpha search for high-dimensional features
 python run.py --model dinov2_large --layer blocks.23 --benchmark NSDV1Shared --metric ridge --subsample-features-for-alpha 2000
 ```
+
+### Finding Layer Names
+
+To see available layer names for any model, print the model architecture:
+```python
+from models import MODEL_REGISTRY
+
+# Get the model class
+model_info = MODEL_REGISTRY['resnet18']
+model_instance = model_info['class']()
+model = model_instance.get_model('ResNet18')
+
+# Print all layer names
+for name, module in model.named_modules():
+    print(name)
+```
+
+### Layer Names for HuggingFace ResNet Models
+
+HuggingFace ResNet models use different layer names than standard PyTorch:
+| Standard Name | HuggingFace Name |
+|---------------|------------------|
+| `layer1` | `_orig_mod.resnet.encoder.stages.0` |
+| `layer2` | `_orig_mod.resnet.encoder.stages.1` |
+| `layer3` | `_orig_mod.resnet.encoder.stages.2` |
+| `layer4` | `_orig_mod.resnet.encoder.stages.3` |
 
 ### List Available Options
 ```bash

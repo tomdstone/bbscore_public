@@ -589,7 +589,8 @@ class OnlineLinearRegressor(OnlineMetric):
                 for batch_idx, (batch_data, batch_labels_raw) in enumerate(batch_bar):
                     optimizer.zero_grad()
                     labels_raw = self._unpack_labels(batch_labels_raw)
-                    labels = self._normalize_labels(labels_raw)  # Normalize for training
+                    labels = self._normalize_labels(
+                        labels_raw)  # Normalize for training
 
                     if self.use_mixed_precision:
                         with torch.amp.autocast('cuda'):
@@ -607,7 +608,8 @@ class OnlineLinearRegressor(OnlineMetric):
                             if self.loss_type == 'mse':
                                 loss = mse_loss
                             elif self.loss_type == 'correlation':
-                                loss = pearson_correlation_loss(outputs, labels)
+                                loss = pearson_correlation_loss(
+                                    outputs, labels)
                             elif self.loss_type == 'ccc':
                                 loss = ccc_loss(outputs, labels)
                             elif self.loss_type == 'ccc_mse':
@@ -615,7 +617,8 @@ class OnlineLinearRegressor(OnlineMetric):
                                 loss = (1 - self.correlation_weight) * mse_loss + \
                                     self.correlation_weight * ccc_loss_val
                             else:  # combined
-                                corr_loss = pearson_correlation_loss(outputs, labels)
+                                corr_loss = pearson_correlation_loss(
+                                    outputs, labels)
                                 loss = (1 - self.correlation_weight) * \
                                     mse_loss + self.correlation_weight * corr_loss
 
@@ -657,7 +660,8 @@ class OnlineLinearRegressor(OnlineMetric):
                             loss = (1 - self.correlation_weight) * mse_loss + \
                                 self.correlation_weight * ccc_loss_val
                         else:  # combined
-                            corr_loss = pearson_correlation_loss(outputs, labels)
+                            corr_loss = pearson_correlation_loss(
+                                outputs, labels)
                             loss = (1 - self.correlation_weight) * \
                                 mse_loss + self.correlation_weight * corr_loss
 
@@ -687,7 +691,8 @@ class OnlineLinearRegressor(OnlineMetric):
 
                     # Compute scale ratio for monitoring
                     with torch.no_grad():
-                        scale_ratio = compute_scale_ratio(outputs, labels).item()
+                        scale_ratio = compute_scale_ratio(
+                            outputs, labels).item()
 
                     batch_bar.set_postfix(
                         {"batch_mse": f"{batch_mse:.4f}", "loss": f"{loss.item():.4f}", "scale_ratio": f"{scale_ratio:.3f}"})
@@ -711,7 +716,8 @@ class OnlineLinearRegressor(OnlineMetric):
                         if self.loss_type in ['ccc', 'ccc_mse']:
                             log_dict["train/ccc_loss"] = ccc_loss(
                                 outputs, labels).item()
-                        wandb.log(log_dict, step=getattr(self, "global_step", 0))
+                        wandb.log(log_dict, step=getattr(
+                            self, "global_step", 0))
                         self.global_step = getattr(self, "global_step", 0) + 1
 
                 avg_train_loss = total_train_loss / len(current_train_loader)

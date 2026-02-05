@@ -883,10 +883,10 @@ if [ -f "$REQUIREMENTS_FILE" ]; then
         print_info "  Installing $PKG_NAME..."
         if $ENV_PIP install "$pkg" --quiet 2>/dev/null; then
             print_success "    $PKG_NAME installed"
-            ((GIT_SUCCESS++))
+            GIT_SUCCESS=$((GIT_SUCCESS + 1))
         else
             print_warning "    $PKG_NAME failed (non-critical)"
-            ((GIT_FAILED++))
+            GIT_FAILED=$((GIT_FAILED + 1))
             FAILED_PACKAGES="$FAILED_PACKAGES $PKG_NAME"
         fi
     done <<< "$GIT_PACKAGES"

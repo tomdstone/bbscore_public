@@ -26,6 +26,15 @@ class ResNet:
             "ResNet50-DINO": "dino_resnet50",
         }
 
+        # Layer name mapping from standard names to HuggingFace names
+        # torch.compile adds _orig_mod prefix
+        self.layer_mapping = {
+            "layer1": "_orig_mod.resnet.encoder.stages.0",
+            "layer2": "_orig_mod.resnet.encoder.stages.1",
+            "layer3": "_orig_mod.resnet.encoder.stages.2",
+            "layer4": "_orig_mod.resnet.encoder.stages.3",
+        }
+
         # Current processor
         self.processor = None
 

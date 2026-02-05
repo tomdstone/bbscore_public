@@ -174,7 +174,8 @@ def get_gpu_info() -> List[Dict]:
                 total_mem = props.total_memory / (1024**3)
                 # Get free memory
                 torch.cuda.set_device(i)
-                free_mem = (props.total_memory - torch.cuda.memory_allocated(i)) / (1024**3)
+                free_mem = (props.total_memory -
+                            torch.cuda.memory_allocated(i)) / (1024**3)
                 gpus.append({
                     "name": props.name,
                     "total_memory_gb": round(total_mem, 2),
@@ -273,7 +274,8 @@ def get_model_spec(model_name: str) -> Dict:
             return spec
 
     # Determine if video model
-    video_keywords = ["video", "3d", "slowfast", "i3d", "vivit", "timesformer", "r3d", "mae_video"]
+    video_keywords = ["video", "3d", "slowfast", "i3d",
+                      "vivit", "timesformer", "r3d", "mae_video"]
     if any(kw in model_lower for kw in video_keywords):
         return MODEL_SPECS["_default_video"]
 
@@ -323,7 +325,8 @@ def estimate_memory_requirements(
     # Feature storage estimate (rough)
     # Assume ~1KB per sample per 1000 features
     feature_dim = model_spec["params"] * 10  # Rough estimate
-    feature_storage_mb = (benchmark_spec["samples"] * feature_dim * 4) / (1024 * 1024)
+    feature_storage_mb = (
+        benchmark_spec["samples"] * feature_dim * 4) / (1024 * 1024)
 
     return {
         "vram_gb": round(vram_estimate, 2),
@@ -384,9 +387,11 @@ def generate_report(
     ram_available = system_info["ram_available_gb"]
     if ram_available < reqs.min_ram:
         report["can_run"] = False
-        report["warnings"].append(f"Insufficient RAM: {ram_available:.1f}GB available, {reqs.min_ram}GB minimum required")
+        report["warnings"].append(
+            f"Insufficient RAM: {ram_available:.1f}GB available, {reqs.min_ram}GB minimum required")
     elif ram_available < reqs.recommended_ram:
-        report["warnings"].append(f"Low RAM: {ram_available:.1f}GB available, {reqs.recommended_ram}GB recommended")
+        report["warnings"].append(
+            f"Low RAM: {ram_available:.1f}GB available, {reqs.recommended_ram}GB recommended")
 
     # Check GPU
     gpus = system_info["gpus"]
@@ -400,16 +405,19 @@ def generate_report(
     missing_deps = [k for k, v in deps.items() if k != "_optional" and not v]
     if missing_deps:
         report["can_run"] = False
-        report["warnings"].append(f"Missing required dependencies: {', '.join(missing_deps)}")
+        report["warnings"].append(
+            f"Missing required dependencies: {', '.join(missing_deps)}")
 
     # Check disk space
     disk_free = system_info["disk_free_gb"]
     if disk_free < reqs.min_disk:
-        report["warnings"].append(f"Low disk space: {disk_free:.1f}GB free, {reqs.min_disk}GB recommended")
+        report["warnings"].append(
+            f"Low disk space: {disk_free:.1f}GB free, {reqs.min_disk}GB recommended")
 
     # Check specific configuration if provided
     if model_name and benchmark_name:
-        mem_reqs = estimate_memory_requirements(model_name, benchmark_name, metric_name, batch_size)
+        mem_reqs = estimate_memory_requirements(
+            model_name, benchmark_name, metric_name, batch_size)
         report["details"]["estimated_requirements"] = mem_reqs
 
         # Check VRAM
@@ -421,7 +429,8 @@ def generate_report(
                 f"GPU memory may be insufficient: {max_vram:.1f}GB available, "
                 f"{mem_reqs['vram_gb']:.1f}GB estimated for batch_size={batch_size}"
             )
-            report["recommendations"].append(f"Try reducing batch_size (current: {batch_size})")
+            report["recommendations"].append(
+                f"Try reducing batch_size (current: {batch_size})")
 
         # Check RAM
         if ram_available < mem_reqs["ram_gb"]:
@@ -445,12 +454,15 @@ def generate_report(
 
     # General recommendations
     if not has_gpu:
-        report["recommendations"].append("GPU highly recommended for faster training")
-        report["recommendations"].append("Use 'ridge' metric instead of 'online_linear_regressor' for CPU-only")
+        report["recommendations"].append(
+            "GPU highly recommended for faster training")
+        report["recommendations"].append(
+            "Use 'ridge' metric instead of 'online_linear_regressor' for CPU-only")
 
     if not deps.get("_optional", {}).get("RAPIDS cuML (GPU acceleration)", False):
         if has_gpu:
-            report["recommendations"].append("Install cuML for 50x faster ridge regression on GPU")
+            report["recommendations"].append(
+                "Install cuML for 50x faster ridge regression on GPU")
 
     return report
 
@@ -471,9 +483,12 @@ def print_full_report(
     print(f"{Colors.BOLD}System Information:{Colors.END}")
     print(f"  OS: {system_info['platform']} ({system_info['architecture']})")
     print(f"  Python: {system_info['python_version']}")
-    print(f"  CPU: {system_info['cpu_count']} cores ({system_info['cpu_count_logical']} threads)")
-    print(f"  RAM: {system_info['ram_available_gb']:.1f}GB available / {system_info['ram_total_gb']:.1f}GB total")
-    print(f"  Disk: {system_info['disk_free_gb']:.1f}GB free / {system_info['disk_total_gb']:.1f}GB total")
+    print(
+        f"  CPU: {system_info['cpu_count']} cores ({system_info['cpu_count_logical']} threads)")
+    print(
+        f"  RAM: {system_info['ram_available_gb']:.1f}GB available / {system_info['ram_total_gb']:.1f}GB total")
+    print(
+        f"  Disk: {system_info['disk_free_gb']:.1f}GB free / {system_info['disk_total_gb']:.1f}GB total")
     print(f"  Data Directory: {system_info['data_directory']}")
 
     # GPU Info
@@ -481,7 +496,8 @@ def print_full_report(
     if system_info["gpus"]:
         for i, gpu in enumerate(system_info["gpus"]):
             print(f"  GPU {i}: {gpu['name']}")
-            print(f"    Memory: {gpu['free_memory_gb']:.1f}GB free / {gpu['total_memory_gb']:.1f}GB total")
+            print(
+                f"    Memory: {gpu['free_memory_gb']:.1f}GB free / {gpu['total_memory_gb']:.1f}GB total")
             print(f"    Compute Capability: {gpu['compute_capability']}")
     else:
         print(f"  {Colors.YELLOW}No GPU detected{Colors.END}")
@@ -527,7 +543,8 @@ def print_full_report(
     # Final verdict
     print(f"\n{Colors.BOLD}{'='*60}{Colors.END}")
     if report["can_run"]:
-        print(f"{Colors.GREEN}{Colors.BOLD}✓ Your system can run BBScore benchmarks{Colors.END}")
+        print(
+            f"{Colors.GREEN}{Colors.BOLD}✓ Your system can run BBScore benchmarks{Colors.END}")
     else:
         print(f"{Colors.RED}{Colors.BOLD}✗ Your system may not be able to run BBScore benchmarks{Colors.END}")
         print(f"  Please address the warnings above before proceeding.")
@@ -547,11 +564,15 @@ def list_available_options():
 
         print(f"{Colors.BOLD}Benchmarks ({len(BENCHMARK_REGISTRY)}):{Colors.END}")
         # Group by type
-        online = [k for k in sorted(BENCHMARK_REGISTRY.keys()) if "Online" in k]
-        offline = [k for k in sorted(BENCHMARK_REGISTRY.keys()) if "Online" not in k]
+        online = [k for k in sorted(
+            BENCHMARK_REGISTRY.keys()) if "Online" in k]
+        offline = [k for k in sorted(
+            BENCHMARK_REGISTRY.keys()) if "Online" not in k]
 
-        print(f"  Online (lower memory): {', '.join(online[:10])}{'...' if len(online) > 10 else ''}")
-        print(f"  Standard: {', '.join(offline[:10])}{'...' if len(offline) > 10 else ''}")
+        print(
+            f"  Online (lower memory): {', '.join(online[:10])}{'...' if len(online) > 10 else ''}")
+        print(
+            f"  Standard: {', '.join(offline[:10])}{'...' if len(offline) > 10 else ''}")
 
         print(f"\n{Colors.BOLD}Models ({len(MODEL_REGISTRY)}):{Colors.END}")
         models = sorted(MODEL_REGISTRY.keys())
@@ -577,29 +598,36 @@ def quick_check():
     # Quick RAM check
     ram = system_info["ram_available_gb"]
     if ram >= 16:
-        print_status("RAM", True, f"{ram:.1f}GB available - Good for most benchmarks")
+        print_status(
+            "RAM", True, f"{ram:.1f}GB available - Good for most benchmarks")
     elif ram >= 8:
-        print_status("RAM", True, f"{ram:.1f}GB available - OK for Online benchmarks")
+        print_status(
+            "RAM", True, f"{ram:.1f}GB available - OK for Online benchmarks")
     else:
-        print_status("RAM", False, f"{ram:.1f}GB available - May be insufficient")
+        print_status(
+            "RAM", False, f"{ram:.1f}GB available - May be insufficient")
 
     # Quick GPU check
     gpus = system_info["gpus"]
     if gpus:
         max_vram = max([g["total_memory_gb"] for g in gpus])
         if max_vram >= 8:
-            print_status("GPU", True, f"{gpus[0]['name']} ({max_vram:.1f}GB) - Good for most models")
+            print_status(
+                "GPU", True, f"{gpus[0]['name']} ({max_vram:.1f}GB) - Good for most models")
         elif max_vram >= 4:
-            print_status("GPU", True, f"{gpus[0]['name']} ({max_vram:.1f}GB) - OK for smaller models")
+            print_status(
+                "GPU", True, f"{gpus[0]['name']} ({max_vram:.1f}GB) - OK for smaller models")
         else:
-            print_status("GPU", True, f"{gpus[0]['name']} ({max_vram:.1f}GB) - Limited, use small batch sizes")
+            print_status(
+                "GPU", True, f"{gpus[0]['name']} ({max_vram:.1f}GB) - Limited, use small batch sizes")
     else:
         print_status("GPU", False, "No GPU - Will use CPU (slower)")
 
     # Quick disk check
     disk = system_info["disk_free_gb"]
     if disk >= 100:
-        print_status("Disk", True, f"{disk:.1f}GB free - Good for all datasets")
+        print_status(
+            "Disk", True, f"{disk:.1f}GB free - Good for all datasets")
     elif disk >= 50:
         print_status("Disk", True, f"{disk:.1f}GB free - OK for most datasets")
     else:
@@ -609,14 +637,19 @@ def quick_check():
     print(f"\n{Colors.BOLD}Quick Recommendations:{Colors.END}")
 
     if not gpus:
-        print_recommendation("Use 'ridge' metric instead of online metrics (no GPU required)")
-        print_recommendation("Consider using Google Colab or cloud compute for GPU access")
+        print_recommendation(
+            "Use 'ridge' metric instead of online metrics (no GPU required)")
+        print_recommendation(
+            "Consider using Google Colab or cloud compute for GPU access")
 
     if ram < 16:
-        print_recommendation("Use Online* benchmarks (e.g., OnlineTVSDV1) for lower memory usage")
-        print_recommendation("Use smaller models (e.g., resnet18, efficientnet_b0)")
+        print_recommendation(
+            "Use Online* benchmarks (e.g., OnlineTVSDV1) for lower memory usage")
+        print_recommendation(
+            "Use smaller models (e.g., resnet18, efficientnet_b0)")
 
-    print_recommendation("Set SCIKIT_LEARN_DATA environment variable to a directory with enough space")
+    print_recommendation(
+        "Set SCIKIT_LEARN_DATA environment variable to a directory with enough space")
     print()
 
 
@@ -634,14 +667,22 @@ Examples:
         """
     )
 
-    parser.add_argument("--model", "-m", type=str, help="Model to check (e.g., resnet50, dinov2_base)")
-    parser.add_argument("--benchmark", "-b", type=str, help="Benchmark to check (e.g., OnlineTVSDV1)")
-    parser.add_argument("--metric", type=str, default="ridge", help="Metric to use (default: ridge)")
-    parser.add_argument("--batch-size", type=int, default=4, help="Batch size (default: 4)")
-    parser.add_argument("--quick", "-q", action="store_true", help="Quick check without detailed analysis")
-    parser.add_argument("--list", "-l", action="store_true", help="List available models/benchmarks/metrics")
-    parser.add_argument("--json", "-j", action="store_true", help="Output report as JSON")
-    parser.add_argument("--no-color", action="store_true", help="Disable colored output")
+    parser.add_argument("--model", "-m", type=str,
+                        help="Model to check (e.g., resnet50, dinov2_base)")
+    parser.add_argument("--benchmark", "-b", type=str,
+                        help="Benchmark to check (e.g., OnlineTVSDV1)")
+    parser.add_argument("--metric", type=str, default="ridge",
+                        help="Metric to use (default: ridge)")
+    parser.add_argument("--batch-size", type=int, default=4,
+                        help="Batch size (default: 4)")
+    parser.add_argument("--quick", "-q", action="store_true",
+                        help="Quick check without detailed analysis")
+    parser.add_argument("--list", "-l", action="store_true",
+                        help="List available models/benchmarks/metrics")
+    parser.add_argument("--json", "-j", action="store_true",
+                        help="Output report as JSON")
+    parser.add_argument("--no-color", action="store_true",
+                        help="Disable colored output")
 
     args = parser.parse_args()
 

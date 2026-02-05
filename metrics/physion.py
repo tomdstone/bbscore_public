@@ -9,7 +9,7 @@ from sklearn.datasets import get_data_home
 
 # Metric imports
 from sklearn.metrics import accuracy_score, cohen_kappa_score
-from brainio.assemblies import walk_coords
+from data.utils import walk_coords
 
 # Local imports
 from metrics.base_online import OnlineMetric

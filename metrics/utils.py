@@ -1,3 +1,4 @@
+from jepa.src.models.attentive_pooler import AttentiveClassifier
 import gc
 import torch
 import torch.nn as nn
@@ -1896,9 +1897,6 @@ class PositionalEncoding(nn.Module):
         # We need to select up to seq_length from pe
         x = x + self.pe[:, :x.size(1), :]
         return x
-
-
-from jepa.src.models.attentive_pooler import AttentiveClassifier
 
 
 class TransformerInternalModel(nn.Module):

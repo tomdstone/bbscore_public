@@ -152,7 +152,8 @@ class VideoSwin:
                 # change every ThreeCrop and TenCrop to CenterCrop
                 self.processor = test_pipeline_cfg
 
-                self.model = VIDEOSWIN_MODEL(config, checkpoint, device="cuda")
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                self.model = VIDEOSWIN_MODEL(config, checkpoint, device=device)
                 # self.model = torch.compile(self.model.half())
                 print('Loaded')
                 return self.model

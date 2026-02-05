@@ -12,7 +12,8 @@ class MCVD_Wrapper(nn.Module):
     def __init__(self, weights_path, cfg_path):
 
         super().__init__()
-        device = 'cuda'
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = device
         self.scorenet, self.config = load_model(weights_path, device, cfg_path)
         self.sampler = get_readout_sampler(self.config)
 

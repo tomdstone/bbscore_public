@@ -67,7 +67,8 @@ class VLM:
             images=inputs, text=chat_str, return_tensors="pt")
 
         # 5. Forward pass
-        outputs = self.original_forward(**vision_inputs.to('cuda'))
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        outputs = self.original_forward(**vision_inputs.to(device))
         return outputs
 
     def hybrid_forward(self, *args, **kwargs):
@@ -113,7 +114,7 @@ class VLM:
             model_path,
             torch_dtype="auto",
             trust_remote_code=True,
-            device_map="cuda"
+            device_map="cuda" if torch.cuda.is_available() else "cpu"
         )
 
         config_owner = actual_model

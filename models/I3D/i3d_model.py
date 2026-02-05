@@ -7,8 +7,11 @@ from mmengine.dataset import Compose, pseudo_collate
 
 
 class I3D_MODEL(nn.Module):
-    def __init__(self, config, checkpoint, device="cuda"):
+    def __init__(self, config, checkpoint, device=None):
         super().__init__()
+        if device is None:
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
         self.model = init_recognizer(config, checkpoint, device)
         self.model.eval()
         self.dtype = next(self.model.parameters()).dtype
@@ -16,6 +19,6 @@ class I3D_MODEL(nn.Module):
 
     def forward(self, inputs):
         data = inputs
-        data["inputs"] = [d.to("cuda", dtype=self.dtype)
+        data["inputs"] = [d.to(self.device, dtype=self.dtype)
                           for d in data["inputs"]]
         return self.model.test_step(data)[0]

@@ -111,7 +111,7 @@ python run.py --model resnet50 --layer _orig_mod.resnet.encoder.stages.3 --bench
 | RAM | 8 GB | 16+ GB |
 | GPU | None (CPU works) | 4+ GB VRAM |
 | Disk | 50 GB | 100+ GB |
-| Python | 3.9+ | 3.10 |
+| Python | 3.9+ | 3.11 |
 
 **No GPU?** Use:
 - `ridge` metric instead of `online_linear_regressor`

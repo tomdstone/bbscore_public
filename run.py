@@ -4,7 +4,7 @@ import inspect
 from typing import List, Union
 
 from benchmarks import BENCHMARK_REGISTRY
-from metrics import METRICS
+from metrics import METRICS, validate_metric_benchmark, get_compatible_metrics
 from models import MODEL_REGISTRY
 
 
@@ -100,8 +100,15 @@ def test_pipeline(
         print(
             f"Warning: Benchmark '{benchmark_identifier}' does not support Random Projection. Ignoring.")
 
-    # 6. Add Desired Metrics
+    # 6. Add Desired Metrics (with compatibility check)
     for metric_name in metric_names:
+        if not validate_metric_benchmark(metric_name, benchmark_identifier):
+            compatible = get_compatible_metrics(benchmark_identifier)
+            print(
+                f"Warning: Metric '{metric_name}' may not be compatible "
+                f"with benchmark '{benchmark_identifier}'.\n"
+                f"  Compatible metrics: {compatible}"
+            )
         pipeline.add_metric(metric_name)
 
     # 7. Run the Pipeline

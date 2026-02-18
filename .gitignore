@@ -21,3 +21,10 @@ test_eval*
 wandb/
 
 out/
+
+# Downloaded dataset files
+NSDAssembly/
+NSDStimulusSet/
+
+# Local files
+generate_presentation.py

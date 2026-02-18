@@ -3,7 +3,8 @@ import glob
 import numpy as np
 import h5py
 import re
-from typing import Optional, List, Union, Callable
+from collections import defaultdict
+from typing import Optional, List, Union, Callable, Dict, Tuple
 from data.base import BaseDataset
 
 
@@ -289,4 +290,294 @@ class LeBel2023Assembly(BaseDataset):
         # unless we cache the data in __init__ which is expensive.
         # BUT, the Scorer might not use __getitem__ for Assembly if it uses get_assembly.
         # So we just need to satisfy the abstract class.
+        return None
+
+
+class LeBel2023TRStimulusSet(BaseDataset):
+    """
+    TR-level stimulus set for LeBel et al. (2023).
+    Parses TextGrid files preserving word-level timestamps,
+    then bins words into TR windows with cumulative context.
+    """
+
+    def __init__(self, root_dir: Optional[str] = None,
+                 tr_duration: float = 2.0):
+        super().__init__(root_dir)
+        self.tr_duration = tr_duration
+        self.stories: List[List[Tuple[str, float, float]]] = []
+        self.story_names: List[str] = []
+
+        self.dataset_dir = os.path.join(self.root_dir, "ds003020")
+        self.textgrid_dir = os.path.join(
+            self.dataset_dir, "derivative", "TextGrids")
+
+        self._prepare_stimuli()
+
+    def _prepare_stimuli(self):
+        s3_source = "s3://openneuro.org/ds003020/derivative/TextGrids/"
+
+        if not os.path.exists(self.textgrid_dir) or \
+                not os.listdir(self.textgrid_dir):
+            try:
+                print(f"Downloading TextGrids from {s3_source}...")
+                self.fetch(
+                    source=s3_source,
+                    target_dir=os.path.dirname(self.textgrid_dir),
+                    filename="TextGrids",
+                    method="s3",
+                    anonymous=True
+                )
+            except Exception as e:
+                print(f"Error downloading TextGrids: {e}")
+
+        tg_files = sorted(
+            glob.glob(os.path.join(self.textgrid_dir, "*.TextGrid")))
+        print(f"Found {len(tg_files)} TextGrid files.")
+        if not tg_files:
+            raise FileNotFoundError(
+                f"No .TextGrid files found in {self.textgrid_dir}")
+
+        for tg_file in tg_files:
+            story_name = os.path.basename(tg_file).replace(".TextGrid", "")
+            try:
+                words_with_times = self._parse_textgrid_with_timestamps(
+                    tg_file)
+                self.stories.append(words_with_times)
+                self.story_names.append(story_name)
+            except Exception as e:
+                print(f"Failed to parse {tg_file}: {e}")
+
+    def _parse_textgrid_with_timestamps(
+        self, filepath: str
+    ) -> List[Tuple[str, float, float]]:
+        """
+        Parse a Praat TextGrid file, extracting (word, xmin, xmax) tuples
+        from the 'words' tier.
+        """
+        with open(filepath, 'r', encoding='utf-8') as f:
+            content = f.read()
+
+        tier_match = re.search(
+            r'name = "words"(.*?)(name = |$)', content, re.DOTALL)
+        if not tier_match:
+            return []
+
+        tier_content = tier_match.group(1)
+        pattern = r'xmin = ([\d.]+)\s+xmax = ([\d.]+)\s+text = "(.*?)"'
+        matches = re.findall(pattern, tier_content)
+
+        words_with_times = []
+        for xmin_str, xmax_str, word in matches:
+            if word.strip():
+                words_with_times.append((
+                    word.strip(),
+                    float(xmin_str),
+                    float(xmax_str)
+                ))
+        return words_with_times
+
+    def get_tr_texts(self, story_idx: int) -> Tuple[List[str], int]:
+        """
+        For a given story, return cumulative context strings per TR.
+
+        Words are assigned to TRs by their midpoint time.
+        Each TR's text is the concatenation of ALL words up to and
+        including that TR (cumulative context).
+
+        Returns:
+            cumulative_texts: list of cumulative text strings, one per TR
+            n_trs: number of TRs
+        """
+        words_with_times = self.stories[story_idx]
+        if not words_with_times:
+            return [], 0
+
+        max_time = max(xmax for _, _, xmax in words_with_times)
+        n_trs = int(np.ceil(max_time / self.tr_duration))
+
+        cumulative_texts = []
+        all_words_so_far = []
+        word_idx = 0
+
+        for tr_idx in range(n_trs):
+            tr_end = (tr_idx + 1) * self.tr_duration
+            # Assign words by midpoint
+            while (word_idx < len(words_with_times) and
+                   (words_with_times[word_idx][1] +
+                    words_with_times[word_idx][2]) / 2.0 < tr_end):
+                all_words_so_far.append(words_with_times[word_idx][0])
+                word_idx += 1
+            cumulative_texts.append(" ".join(all_words_so_far))
+
+        return cumulative_texts, n_trs
+
+    def __len__(self):
+        return len(self.stories)
+
+    def __getitem__(self, idx):
+        return self.stories[idx]
+
+
+class LeBel2023TRAssembly(BaseDataset):
+    """
+    TR-level fMRI assembly for LeBel et al. (2023).
+    Returns per-story fMRI time series without temporal averaging.
+    Multiple runs of the same story are averaged together.
+    """
+
+    def __init__(self, root_dir: Optional[str] = None,
+                 subjects: Union[str, List[str]] = None):
+        super().__init__(root_dir)
+        if subjects is None:
+            subjects = ['UTS01']
+        if isinstance(subjects, str):
+            subjects = [subjects]
+        self.subjects = subjects
+        self.dataset_dir = os.path.join(self.root_dir, "ds003020")
+        self.data_dir = os.path.join(
+            self.dataset_dir, "derivative", "preprocessed_data")
+
+    @staticmethod
+    def _extract_story_name(filepath: str) -> str:
+        """Extract canonical story name from HDF5 filename."""
+        return os.path.basename(filepath).replace(".hf5", "")
+
+    def _load_hf5(self, filepath: str) -> np.ndarray:
+        """Load a single HDF5 file, returning (n_TRs, n_voxels)."""
+        with h5py.File(filepath, 'r') as hf:
+            keys = list(hf.keys())
+            dset = None
+            for k in ['data', 'dset', 'roi', 'rep']:
+                if k in keys:
+                    dset = hf[k][:]
+                    break
+            if dset is None:
+                dset = hf[keys[0]][:]
+        return dset
+
+    def _ensure_data_downloaded(self, subj: str) -> List[str]:
+        """Download subject data if needed, return sorted list of hf5 paths."""
+        s3_base = "s3://openneuro.org/ds003020/derivative/preprocessed_data/"
+        subj_path = os.path.join(self.data_dir, subj)
+
+        hf5_files = sorted(
+            glob.glob(os.path.join(subj_path, "*.hf5")))
+
+        if not hf5_files and os.path.exists(subj_path):
+            hf5_files = sorted(glob.glob(os.path.join(
+                subj_path, "**", "*.hf5"), recursive=True))
+
+        if len(hf5_files) < 84:
+            print(f"Found {len(hf5_files)} files for {subj}, "
+                  f"expected 84. Downloading...")
+            import shutil
+            if os.path.exists(subj_path) and len(hf5_files) > 0:
+                shutil.rmtree(subj_path)
+            try:
+                self.fetch(
+                    source=f"{s3_base}{subj}/",
+                    target_dir=self.data_dir,
+                    filename=subj,
+                    method="s3",
+                    anonymous=True
+                )
+            except Exception as e:
+                print(f"Error downloading data for {subj}: {e}")
+
+            hf5_files = sorted(
+                glob.glob(os.path.join(subj_path, "*.hf5")))
+            if not hf5_files and os.path.exists(subj_path):
+                hf5_files = sorted(glob.glob(os.path.join(
+                    subj_path, "**", "*.hf5"), recursive=True))
+
+        if not hf5_files:
+            raise FileNotFoundError(
+                f"No .hf5 files found for {subj}")
+
+        print(f"Found {len(hf5_files)} HF5 files for {subj}.")
+        return hf5_files
+
+    def get_assembly(
+        self, story_names: Optional[List[str]] = None
+    ) -> Tuple[Dict[str, np.ndarray], np.ndarray]:
+        """
+        Load per-story fMRI time series.
+
+        Args:
+            story_names: If provided, only load stories matching these names.
+
+        Returns:
+            story_data: dict mapping story_name -> (n_TRs, n_voxels)
+            ncsnr: (n_voxels,) placeholder noise ceiling
+        """
+        # Accumulate per-story data across subjects
+        # For multiple subjects: concatenate along voxel axis
+        merged_story_data: Dict[str, List[np.ndarray]] = defaultdict(list)
+
+        for subj in self.subjects:
+            hf5_files = self._ensure_data_downloaded(subj)
+
+            # Group files by story name
+            story_files: Dict[str, List[str]] = defaultdict(list)
+            for f in hf5_files:
+                sname = self._extract_story_name(f)
+                if story_names is not None and sname not in story_names:
+                    continue
+                story_files[sname].append(f)
+
+            for sname, files in sorted(story_files.items()):
+                runs = []
+                for f in files:
+                    try:
+                        dset = self._load_hf5(f)
+                        runs.append(dset)
+                    except Exception as e:
+                        print(f"Error loading {f}: {e}")
+
+                if not runs:
+                    continue
+
+                if len(runs) > 1:
+                    # Average across repeated runs, align by min TR count
+                    min_trs = min(r.shape[0] for r in runs)
+                    aligned = [r[:min_trs] for r in runs]
+                    subj_story = np.nanmean(
+                        np.stack(aligned, axis=0), axis=0)
+                else:
+                    subj_story = runs[0]
+
+                merged_story_data[sname].append(subj_story)
+
+        if not merged_story_data:
+            raise ValueError("No fMRI data loaded.")
+
+        # Combine across subjects
+        story_data: Dict[str, np.ndarray] = {}
+        for sname, subj_arrays in merged_story_data.items():
+            if len(subj_arrays) > 1:
+                # Concatenate subjects along voxel axis, align TRs
+                min_trs = min(a.shape[0] for a in subj_arrays)
+                aligned = [a[:min_trs] for a in subj_arrays]
+                story_data[sname] = np.concatenate(aligned, axis=1)
+            else:
+                story_data[sname] = subj_arrays[0]
+
+        # Handle NaNs
+        for sname in story_data:
+            story_data[sname] = np.nan_to_num(story_data[sname])
+
+        # Determine voxel count from first story
+        n_voxels = next(iter(story_data.values())).shape[1]
+        ncsnr = np.ones(n_voxels, dtype=np.float32)
+
+        total_trs = sum(v.shape[0] for v in story_data.values())
+        print(f"Loaded {len(story_data)} stories, "
+              f"{total_trs} total TRs, {n_voxels} voxels.")
+
+        return story_data, ncsnr
+
+    def __len__(self):
+        return 27
+
+    def __getitem__(self, idx):
         return None

@@ -51,3 +51,26 @@ class LeBel2023Benchmark(BenchmarkScore):
 
 
 BENCHMARK_REGISTRY["LeBel2023"] = LeBel2023Benchmark
+
+# --- TR-level benchmarks ---
+from benchmarks.LeBel2023.LeBel2023TRBenchmark import LeBel2023TRBenchmark
+
+for _subj in subjects:
+    _tr_class_name = f"LeBel2023TR{_subj}"
+
+    # Capture _subj in default arg to avoid late-binding closure issue
+    class _DynamicTRBenchmark(LeBel2023TRBenchmark):
+        def __init__(self, model_identifier, layer_name,
+                     debug=False, batch_size=None,
+                     _sid=_subj):
+            if batch_size is None:
+                batch_size = [4]
+            super().__init__(
+                model_identifier, layer_name,
+                subject_id=_sid,
+                batch_size=batch_size,
+                debug=debug
+            )
+
+    _DynamicTRBenchmark.__name__ = _tr_class_name
+    BENCHMARK_REGISTRY[_tr_class_name] = _DynamicTRBenchmark

@@ -117,6 +117,57 @@ python run.py --model resnet50 --layer _orig_mod.resnet.encoder.stages.3 --bench
 - Smaller models (`resnet18`, `efficientnet_b0`)
 - Online benchmarks (`OnlineTVSDV1`, `OnlineTVSDV4`)
 
+### Validate Your Setup
+
+Before starting your project, run the validation script to confirm your machine can handle the full pipeline:
+
+```bash
+python validate.py
+```
+
+This runs three tiers of checks:
+
+| Tier | What it tests | Time |
+|------|---------------|------|
+| **1. Environment** | Python version, dependencies, registries, hardware (RAM, GPU, disk) | ~30s |
+| **2. Model Inference** | Loads ResNet-18 (vision) and GPT-2 Small (language), runs forward passes | ~2-3 min |
+| **3. Data & Pipeline** | Downloads NSD and LeBel2023 datasets, validates data shapes, runs ridge and temporal RSA on synthetic data | ~5-30 min (first run downloads data) |
+
+**All three tiers must pass before you start your project.**
+
+You can run individual tiers to isolate issues:
+```bash
+python validate.py --tier 1     # Environment only
+python validate.py --tier 2     # Environment + model inference
+python validate.py --tier 3     # All tiers (default)
+```
+
+Expected output on a working setup:
+```
+  Validation Summary
+  PASS  Tier 1: Environment & Dependencies  (1s)
+  PASS  Tier 2: Model Loading & Inference   (45s)
+  PASS  Tier 3: Data & Pipeline             (120s)
+
+  Your machine is ready for BBScore experiments.
+```
+
+### Metric-Benchmark Compatibility
+
+Not all metrics work with all benchmarks. The framework validates this automatically, but here is the reference:
+
+| Benchmark Type | Compatible Metrics |
+|---|---|
+| **NSD, TVSD, BMD, LeBel2023** (offline neural) | `ridge`, `torch_ridge`, `pls`, `rsa`, `temporal_rsa`, `versa`, `bidirectional`, `one_to_one`, `soft_matching`, `semi_matching`, `temporal_ridge`, `inverse_ridge` |
+| **LeBel2023TR** (TR-level language) | `ridge`, `temporal_rsa` |
+| **V1SineGratings** | All offline metrics + `orientation_selectivity` |
+| **OnlineTVSD** | `online_linear_regressor` |
+| **OnlinePhysionContact** | `online_linear_classifier`, `physion_contact_prediction`, `physion_contact_detection` |
+| **OnlinePhysionPlacement** | `online_linear_classifier`, `physion_placement_prediction`, `physion_placement_detection` |
+| **SSV2** | `online_linear_classifier`, `online_transformer_classifier` |
+
+Using an incompatible metric will print a warning with the list of compatible options.
+
 ### Recommended Workflow
 
 1. **Start with small experiments:**

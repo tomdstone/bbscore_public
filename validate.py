@@ -203,6 +203,25 @@ def run_tier2():
         _fail(f"resnet18: {e}")
         passed = False
 
+    # --- Vision model: ResNet-50 (torchvision) ---
+    _section("Vision Model (resnet50)")
+    try:
+        import torchvision.models as tv_models
+        t0 = time.time()
+        model = tv_models.resnet50(weights="DEFAULT")
+        model.eval().to(device)
+
+        dummy = torch.randn(1, 3, 224, 224).to(device)
+        with torch.inference_mode():
+            _ = model(dummy)
+
+        elapsed = time.time() - t0
+        _pass(f"Forward pass on {device} ({elapsed:.1f}s)")
+        del model, dummy
+    except Exception as e:
+        _fail(f"resnet50: {e}")
+        passed = False
+
     # --- Language model: GPT-2 Small ---
     _section("Language Model (gpt2_small)")
     try:

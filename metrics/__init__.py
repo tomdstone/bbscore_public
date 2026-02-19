@@ -72,6 +72,10 @@ METRIC_GROUPS = {
     "topographic": [
         "orientation_selectivity",
     ],
+    # TR-level benchmarks are standalone classes with their own GroupKFold
+    # ridge regression (sklearn RidgeCV). They do NOT use the registry's
+    # "temporal_ridge" (Ridge3DChunkedMetric), which expects 3D chunked
+    # features from the standard BenchmarkScore pipeline.
     "tr_level": [
         "ridge", "temporal_rsa",
     ],

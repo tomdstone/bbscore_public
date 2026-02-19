@@ -160,6 +160,8 @@ Not all metrics work with all benchmarks. The framework validates this automatic
 |---|---|
 | **NSD, TVSD, BMD, LeBel2023** (offline neural) | `ridge`, `torch_ridge`, `pls`, `rsa`, `temporal_rsa`, `versa`, `bidirectional`, `one_to_one`, `soft_matching`, `semi_matching`, `temporal_ridge`, `inverse_ridge` |
 | **LeBel2023TR** (TR-level language) | `ridge`, `temporal_rsa` |
+| **LeBel2023Audio** (audio average) | `ridge`, `torch_ridge`, `pls`, `rsa`, `temporal_rsa`, `versa`, `bidirectional`, `one_to_one`, `soft_matching`, `semi_matching`, `temporal_ridge`, `inverse_ridge` |
+| **LeBel2023AudioTR** (TR-level audio) | `ridge`, `temporal_rsa` |
 | **V1SineGratings** | All offline metrics + `orientation_selectivity` |
 | **OnlineTVSD** | `online_linear_regressor` |
 | **OnlinePhysionContact** | `online_linear_classifier`, `physion_contact_prediction`, `physion_contact_detection` |
@@ -167,6 +169,8 @@ Not all metrics work with all benchmarks. The framework validates this automatic
 | **SSV2** | `online_linear_classifier`, `online_transformer_classifier` |
 
 Using an incompatible metric will print a warning with the list of compatible options.
+
+**Note on TR-level benchmarks:** `LeBel2023TR` and `LeBel2023AudioTR` are standalone classes that bypass the standard `BenchmarkScore` pipeline. They implement their own `GroupKFold` ridge regression internally (using `sklearn.linear_model.RidgeCV` with story-level cross-validation), which is distinct from the `temporal_ridge` metric in the registry. The registry's `temporal_ridge` (`Ridge3DChunkedMetric`) expects 3D chunked features from the standard pipeline and is not compatible with TR-level benchmarks. Use `ridge` for encoding accuracy and `temporal_rsa` for representational geometry comparisons.
 
 ### Recommended Workflow
 
@@ -206,7 +210,10 @@ Using an incompatible metric will print a warning with the list of compatible op
 | `NSDV1Shared` | Image | Medium | Human fMRI V1 (NSD dataset) |
 | `V1SineGratingsBenchmark` | Image | Very Low | Synthetic V1 gratings |
 | `SSV2Benchmark` | Video | High | Something-Something-V2 |
-| `LeBel2023` | Text/fMRI | Low | Language comprehension fMRI |
+| `LeBel2023{UTS01-08}` | Text/fMRI | Low | Language comprehension fMRI |
+| `LeBel2023TR{UTS01-08}` | Text/fMRI | Low | TR-level language encoding |
+| `LeBel2023Audio{UTS01-08}` | Audio/fMRI | Low | Audio comprehension fMRI |
+| `LeBel2023AudioTR{UTS01-08}` | Audio/fMRI | Low | TR-level audio encoding |
 
 ### Models (Examples)
 
@@ -218,6 +225,9 @@ Using an incompatible metric will print a warning with the list of compatible op
 | `dinov2_large` | 304M | 8 GB | Image |
 | `videomae_base` | 87M | 8 GB | Video |
 | `clip_vit_b32` | 151M | 4 GB | Image |
+| `whisper_base` | 74M | 2 GB | Audio |
+| `wav2vec2_base` | 95M | 2 GB | Audio |
+| `hubert_base` | 95M | 2 GB | Audio |
 
 ### Metrics
 
@@ -255,6 +265,12 @@ python run.py --model videomae_base --layer encoder.layer.11 --benchmark OnlineT
 # DINO on V4
 python run.py --model dinov2_base --layer blocks.11 --benchmark OnlineTVSDV4 --metric ridge
 
+# Audio model on LeBel2023 (human fMRI)
+python run.py --model whisper_base --layer _orig_mod.layers.5 --benchmark LeBel2023AudioUTS01 --metric ridge
+
+# Audio TR-level benchmark
+python run.py --model wav2vec2_base --layer _orig_mod.encoder.layers.11 --benchmark LeBel2023AudioTRUTS01 --metric ridge
+
 # Fast alpha search for high-dimensional features
 python run.py --model dinov2_large --layer blocks.23 --benchmark NSDV1Shared --metric ridge --subsample-features-for-alpha 2000
 ```
@@ -284,6 +300,21 @@ HuggingFace ResNet models use different layer names than standard PyTorch:
 | `layer2` | `_orig_mod.resnet.encoder.stages.1` |
 | `layer3` | `_orig_mod.resnet.encoder.stages.2` |
 | `layer4` | `_orig_mod.resnet.encoder.stages.3` |
+
+### Layer Names for Audio Models
+
+Audio models use HuggingFace transformer layers. After `torch.compile`, layer names are prefixed with `_orig_mod.`:
+
+| Model | Layer Pattern | Example |
+|-------|---------------|---------|
+| Whisper (base) | `_orig_mod.layers.<N>` | `_orig_mod.layers.5` |
+| Wav2Vec2 (base) | `_orig_mod.encoder.layers.<N>` | `_orig_mod.encoder.layers.11` |
+| HuBERT (base) | `_orig_mod.encoder.layers.<N>` | `_orig_mod.encoder.layers.11` |
+
+Available variants:
+- **Whisper**: `whisper_tiny`, `whisper_base`, `whisper_small`, `whisper_medium`, `whisper_large_v3`
+- **Wav2Vec2**: `wav2vec2_base`, `wav2vec2_large`, `wav2vec2_large_960h`
+- **HuBERT**: `hubert_base`, `hubert_large`, `hubert_xl`
 
 ### List Available Options
 ```bash

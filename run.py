@@ -13,7 +13,7 @@ def test_pipeline(
     layer_name: Union[str, List[str]],
     benchmark_identifier: str,
     metric_names: List[str],
-    batch_size: int,
+    batch_size: Union[int, List[int]],
     debug: bool,
     use_ridge_smart_memory: bool,
     random_projection: str,

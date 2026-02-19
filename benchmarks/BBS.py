@@ -96,10 +96,14 @@ class BenchmarkScore:
                 preprocess=self.model_instance.preprocess_fn
             )
 
-        if len(batch_size) == 2:
-            self.batch_size, self.test_batch_size = batch_size[0], batch_size[1]
+        if isinstance(batch_size, (list, tuple)):
+            if len(batch_size) == 2:
+                self.batch_size, self.test_batch_size = batch_size[0], batch_size[1]
+            else:
+                self.batch_size = batch_size[0]
+                self.test_batch_size = None
         else:
-            self.batch_size = batch_size[0]
+            self.batch_size = int(batch_size)
             self.test_batch_size = None
 
         # Retrieve the model and create a feature extractor
@@ -113,6 +117,7 @@ class BenchmarkScore:
 
         self.task = task
         self.metrics = {}
+        self.metric_params = {}
 
         self.assembly_class = assembly_class
         self.assembly_train_kwargs = assembly_train_kwargs or {}
@@ -139,10 +144,30 @@ class BenchmarkScore:
         self.aggregation_mode = mode
         self.extractor.aggregation_mode = mode
 
-    def add_metric(self, name):
+    def add_metric(self, name, metric_params=None):
         self.metrics[name] = METRICS[name]
+        if metric_params:
+            self.metric_params[name] = metric_params
 
     def _process_single_layer_result(self, features_train, features_test, labels_train, labels_test, current_layer_name):
+        # Handle dict features (aggregation_mode="none") by extracting the current layer
+        if isinstance(features_train, dict):
+            if current_layer_name in features_train:
+                features_train = features_train[current_layer_name]
+            elif len(features_train) == 1:
+                features_train = next(iter(features_train.values()))
+            else:
+                raise ValueError(
+                    f"features_train is a dict with keys {list(features_train.keys())} "
+                    f"but current_layer_name '{current_layer_name}' not found."
+                )
+        if isinstance(features_test, dict):
+            if current_layer_name in features_test:
+                features_test = features_test[current_layer_name]
+            elif len(features_test) == 1:
+                features_test = next(iter(features_test.values()))
+            else:
+                features_test = None
         stratify_labels_train = None
         if self.assembly_class:
             assembly = self.assembly_class()
@@ -175,11 +200,12 @@ class BenchmarkScore:
         n_metrics = len(self.metrics)
         for name, metric_class in self.metrics.items():
             try:
-                metric_instance = (
-                    metric_class(ceiling=ceiling)
-                    if ceiling is not None
-                    else metric_class()
-                )
+                extra = self.metric_params.get(name, {})
+                if ceiling is not None:
+                    metric_instance = metric_class(
+                        ceiling=ceiling, **extra)
+                else:
+                    metric_instance = metric_class(**extra)
                 results[name] = metric_instance.compute(
                     features_train,
                     target_train,
@@ -388,6 +414,7 @@ class AssemblyBenchmarkScorer:
         self.debug = debug
         self.task = task
         self.metrics = {}
+        self.metric_params = {}
 
         self.source_assembly_class = source_assembly_class
         self.target_assembly_class = target_assembly_class
@@ -420,8 +447,10 @@ class AssemblyBenchmarkScorer:
             print(
                 "Warning: Layer Aggregation is not supported for AssemblyBenchmarkScorer. Ignoring.")
 
-    def add_metric(self, name):
+    def add_metric(self, name, metric_params=None):
         self.metrics[name] = METRICS[name]
+        if metric_params:
+            self.metric_params[name] = metric_params
 
     def run(self):
 
@@ -463,11 +492,12 @@ class AssemblyBenchmarkScorer:
         results = {}
         for name, metric_class in self.metrics.items():
             try:
-                metric_instance = (
-                    metric_class(ceiling=ceiling)
-                    if ceiling is not None
-                    else metric_class()
-                )
+                extra = self.metric_params.get(name, {})
+                if ceiling is not None:
+                    metric_instance = metric_class(
+                        ceiling=ceiling, **extra)
+                else:
+                    metric_instance = metric_class(**extra)
                 results[name] = metric_instance.compute(
                     source_train,
                     target_train,

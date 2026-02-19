@@ -162,11 +162,10 @@ Not all metrics work with all benchmarks. The framework validates this automatic
 | **LeBel2023TR** (TR-level language) | `ridge`, `temporal_rsa` |
 | **LeBel2023Audio** (audio average) | `ridge`, `torch_ridge`, `pls`, `rsa`, `temporal_rsa`, `versa`, `bidirectional`, `one_to_one`, `soft_matching`, `semi_matching`, `temporal_ridge`, `inverse_ridge` |
 | **LeBel2023AudioTR** (TR-level audio) | `ridge`, `temporal_rsa` |
-| **V1SineGratings** | All offline metrics + `orientation_selectivity` |
 | **OnlineTVSD** | `online_linear_regressor` |
-| **OnlinePhysionContact** | `online_linear_classifier`, `physion_contact_prediction`, `physion_contact_detection` |
-| **OnlinePhysionPlacement** | `online_linear_classifier`, `physion_placement_prediction`, `physion_placement_detection` |
-| **SSV2** | `online_linear_classifier`, `online_transformer_classifier` |
+| **OnlinePhysionContact** | `physion_contact_prediction`, `physion_contact_detection` |
+| **OnlinePhysionPlacement** | `physion_placement_prediction`, `physion_placement_detection` |
+| **(Augmented)SSV2** | `online_linear_classifier`, `online_transformer_classifier` |
 
 Using an incompatible metric will print a warning with the list of compatible options.
 
@@ -246,7 +245,7 @@ python run.py --model <MODEL> --layer <LAYER> --benchmark <BENCHMARK> --metric <
 python run.py --model resnet50 --layer _orig_mod.resnet.encoder.stages.3 --benchmark NSDV1Shared --metric ridge
 
 # Video model on TVSD (macaque ephys)
-python run.py --model videomae_base --layer encoder.layer.11 --benchmark OnlineTVSDV1 --metric online_linear_regressor
+python run.py --model videomae_base --layer encoder.layer.11 --benchmark TVSDV1 --metric ridge
 
 # DINO on V4
 python run.py --model dinov2_base --layer blocks.11 --benchmark OnlineTVSDV4 --metric ridge
@@ -276,31 +275,6 @@ model = model_instance.get_model('ResNet18')
 for name, module in model.named_modules():
     print(name)
 ```
-
-### Layer Names for HuggingFace ResNet Models
-
-HuggingFace ResNet models use different layer names than standard PyTorch:
-| Standard Name | HuggingFace Name |
-|---------------|------------------|
-| `layer1` | `_orig_mod.resnet.encoder.stages.0` |
-| `layer2` | `_orig_mod.resnet.encoder.stages.1` |
-| `layer3` | `_orig_mod.resnet.encoder.stages.2` |
-| `layer4` | `_orig_mod.resnet.encoder.stages.3` |
-
-### Layer Names for Audio Models
-
-Audio models use HuggingFace transformer layers. After `torch.compile`, layer names are prefixed with `_orig_mod.`:
-
-| Model | Layer Pattern | Example |
-|-------|---------------|---------|
-| Whisper (base) | `_orig_mod.layers.<N>` | `_orig_mod.layers.5` |
-| Wav2Vec2 (base) | `_orig_mod.encoder.layers.<N>` | `_orig_mod.encoder.layers.11` |
-| HuBERT (base) | `_orig_mod.encoder.layers.<N>` | `_orig_mod.encoder.layers.11` |
-
-Available variants:
-- **Whisper**: `whisper_tiny`, `whisper_base`, `whisper_small`, `whisper_medium`, `whisper_large_v3`
-- **Wav2Vec2**: `wav2vec2_base`, `wav2vec2_large`, `wav2vec2_large_960h`
-- **HuBERT**: `hubert_base`, `hubert_large`, `hubert_xl`
 
 ### List Available Options
 ```bash

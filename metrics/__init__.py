@@ -81,7 +81,10 @@ METRIC_GROUPS = {
 # Checked in order; first matching prefix wins.
 _BENCHMARK_METRIC_MAP = [
     # TR-level LeBel (must be before generic LeBel)
+    ("LeBel2023AudioTR",  ["tr_level"]),
     ("LeBel2023TR",       ["tr_level"]),
+    # Audio average LeBel (must be before generic LeBel)
+    ("LeBel2023Audio",    ["offline_regression", "offline_similarity"]),
     # Offline neural benchmarks
     ("NSD",               ["offline_regression", "offline_similarity"]),
     ("TVSD",              ["offline_regression", "offline_similarity"]),

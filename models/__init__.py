@@ -19,6 +19,7 @@ MODEL_MODULES = [
     "fitvid",
     "gpt2",
     "gdt",
+    "hubert",
     "glm",
     "hmax",
     "I3D",
@@ -59,6 +60,8 @@ MODEL_MODULES = [
     "vit",
     "vjepa",
     "vjepa2",
+    "wav2vec2",
+    "whisper",
     "X3D"
 ]
 

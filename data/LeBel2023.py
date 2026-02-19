@@ -3,6 +3,7 @@ import glob
 import numpy as np
 import h5py
 import re
+import soundfile as sf
 from collections import defaultdict
 from typing import Optional, List, Union, Callable, Dict, Tuple
 from data.base import BaseDataset
@@ -581,3 +582,176 @@ class LeBel2023TRAssembly(BaseDataset):
 
     def __getitem__(self, idx):
         return None
+
+
+class LeBel2023AudioStimulusSet(BaseDataset):
+    """
+    Story-level audio stimulus set for LeBel et al. (2023).
+    Downloads WAV files and returns preprocessed waveforms per story.
+    Truncates to first max_duration seconds (analogous to GPT-2 context length).
+    """
+
+    def __init__(self, root_dir: Optional[str] = None,
+                 preprocess: Optional[Callable] = None,
+                 sample_rate: int = 16000,
+                 max_duration: float = 30.0):
+        super().__init__(root_dir)
+        self.preprocess = preprocess
+        self.sample_rate = sample_rate
+        self.max_duration = max_duration
+        self.stimuli = []
+        self.stimuli_ids = []
+
+        self.dataset_dir = os.path.join(self.root_dir, "ds003020")
+        self.stimuli_dir = os.path.join(self.dataset_dir, "stimuli")
+
+        self._prepare_stimuli()
+
+    def _prepare_stimuli(self):
+        s3_source = "s3://openneuro.org/ds003020/stimuli/"
+
+        if not os.path.exists(self.stimuli_dir) or not os.listdir(self.stimuli_dir):
+            try:
+                print(f"Downloading audio stimuli from {s3_source}...")
+                self.fetch(
+                    source=s3_source,
+                    target_dir=os.path.dirname(self.stimuli_dir),
+                    filename="stimuli",
+                    method="s3",
+                    anonymous=True
+                )
+            except Exception as e:
+                print(f"Error downloading audio stimuli: {e}")
+
+        wav_files = sorted(
+            glob.glob(os.path.join(self.stimuli_dir, "*.wav")))
+        print(f"Found {len(wav_files)} audio stimulus files.")
+        if not wav_files:
+            raise FileNotFoundError(
+                f"No .wav files found in {self.stimuli_dir}")
+
+        for wav_file in wav_files:
+            story_name = os.path.basename(wav_file).replace(".wav", "")
+            self.stimuli.append(wav_file)
+            self.stimuli_ids.append(story_name)
+
+    def _load_audio(self, filepath):
+        """Load and resample audio to target sample rate."""
+        audio, sr = sf.read(filepath, dtype='float32')
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)  # mono
+        if sr != self.sample_rate:
+            import librosa
+            audio = librosa.resample(
+                audio, orig_sr=sr, target_sr=self.sample_rate)
+        # Truncate to max_duration
+        max_samples = int(self.max_duration * self.sample_rate)
+        if len(audio) > max_samples:
+            audio = audio[:max_samples]
+        return audio
+
+    def __len__(self):
+        return len(self.stimuli)
+
+    def __getitem__(self, idx):
+        audio = self._load_audio(self.stimuli[idx])
+        if self.preprocess:
+            return self.preprocess(audio)
+        return audio
+
+
+class LeBel2023AudioTRStimulusSet(BaseDataset):
+    """
+    TR-level audio stimulus set for LeBel et al. (2023).
+    Downloads WAV files and provides per-TR audio segments.
+    """
+
+    def __init__(self, root_dir: Optional[str] = None,
+                 tr_duration: float = 2.0,
+                 sample_rate: int = 16000):
+        super().__init__(root_dir)
+        self.tr_duration = tr_duration
+        self.sample_rate = sample_rate
+        self.story_names = []
+        self.audio_paths = []
+
+        self.dataset_dir = os.path.join(self.root_dir, "ds003020")
+        self.stimuli_dir = os.path.join(self.dataset_dir, "stimuli")
+
+        self._prepare_stimuli()
+
+    def _prepare_stimuli(self):
+        s3_source = "s3://openneuro.org/ds003020/stimuli/"
+
+        if not os.path.exists(self.stimuli_dir) or not os.listdir(self.stimuli_dir):
+            try:
+                print(f"Downloading audio stimuli from {s3_source}...")
+                self.fetch(
+                    source=s3_source,
+                    target_dir=os.path.dirname(self.stimuli_dir),
+                    filename="stimuli",
+                    method="s3",
+                    anonymous=True
+                )
+            except Exception as e:
+                print(f"Error downloading audio stimuli: {e}")
+
+        wav_files = sorted(
+            glob.glob(os.path.join(self.stimuli_dir, "*.wav")))
+        print(f"Found {len(wav_files)} audio stimulus files.")
+        if not wav_files:
+            raise FileNotFoundError(
+                f"No .wav files found in {self.stimuli_dir}")
+
+        for wav_file in wav_files:
+            story_name = os.path.basename(wav_file).replace(".wav", "")
+            self.story_names.append(story_name)
+            self.audio_paths.append(wav_file)
+
+    def _load_audio(self, filepath):
+        """Load and resample audio to target sample rate."""
+        audio, sr = sf.read(filepath, dtype='float32')
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)  # mono
+        if sr != self.sample_rate:
+            import librosa
+            audio = librosa.resample(
+                audio, orig_sr=sr, target_sr=self.sample_rate)
+        return audio
+
+    def get_tr_audio_segments(self, story_idx):
+        """
+        Slice a story's audio into non-overlapping TR-sized segments.
+
+        Returns:
+            segments: list of np.ndarray, each shape (samples_per_tr,)
+            n_trs: int, number of TR segments
+        """
+        audio = self._load_audio(self.audio_paths[story_idx])
+        samples_per_tr = int(self.tr_duration * self.sample_rate)
+        n_trs = len(audio) // samples_per_tr
+
+        if n_trs == 0:
+            return [], 0
+
+        segments = []
+        for i in range(n_trs):
+            start = i * samples_per_tr
+            end = start + samples_per_tr
+            segments.append(audio[start:end])
+
+        # Include partial last segment if significant (>50% of TR)
+        remainder = len(audio) - n_trs * samples_per_tr
+        if remainder > samples_per_tr // 2:
+            last_seg = np.zeros(samples_per_tr, dtype=np.float32)
+            last_seg[:remainder] = audio[n_trs * samples_per_tr:]
+            segments.append(last_seg)
+            n_trs += 1
+
+        return segments, n_trs
+
+    def __len__(self):
+        return len(self.story_names)
+
+    def __getitem__(self, idx):
+        return self._load_audio(self.audio_paths[idx])

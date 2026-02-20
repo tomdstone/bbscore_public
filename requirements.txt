@@ -59,7 +59,7 @@ torchdiffeq
 # mmengine/mmaction for SlowFast models
 mmengine
 mmaction2==1.1.0
-mmcv>=2.0.0,<2.1.0
+mmcv-lite=2.0.1
 importlib-metadata<5
 
 # git model imports
